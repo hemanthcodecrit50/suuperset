@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local database (contains collected personal/portal data)
+*.db
+*.sqlite
+*.sqlite3
+placement.db
+
+# Generated research documents (may contain personal notes)
+research/
+
+# Logs and runtime files
+*.log
+logs/
+*.pid
+*.lock
+
+# Secrets and sensitive state
+.env
+.env.*
+!.env.example
+secrets/
+*.storage-state.json
+storage_state.json
+.streamlit/secrets.toml
+
+# Playwright
+playwright-report/
+test-results/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

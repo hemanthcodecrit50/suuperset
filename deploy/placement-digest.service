@@ -1,0 +1,8 @@
+[Unit]
+Description=Superset Placement Daily Digest
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/sisyphus/data/projects/superset
+EnvironmentFile=/home/sisyphus/data/projects/superset/.env
+ExecStart=/home/sisyphus/data/projects/superset/.venv/bin/python -m app.main digest

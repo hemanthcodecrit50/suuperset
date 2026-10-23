@@ -1,0 +1,36 @@
+{
+  "_comment": "Copy to selectors.json, set SUPERSET_SELECTORS_FILE, and fill in real identifiers. Any key left out keeps the built-in value; unknown keys are ignored.",
+
+  "announcement_card": "div.feed-card",
+  "announcement_title": "h3.feed-card__title",
+  "announcement_poster_time": "div.feed-card__meta",
+  "announcement_body": "div.feed-card__body",
+  "announcement_link": "a.feed-card__link",
+  "announcement_applicable_courses": "div.feed-card__courses",
+  "announcement_eligibility": "div.feed-card__eligibility",
+  "announcement_new_badge": "span.badge-new",
+  "feed_scroll_container": "#main-feed",
+
+  "job_card": "li.job-list__item",
+  "job_title": "a.job-list__title",
+  "job_company_meta": "div.job-list__meta",
+  "job_status_badge": "span.job-list__status",
+  "job_closes_in": "div.job-list__closes",
+  "job_search_box": "input[placeholder*='Search by job']",
+  "job_tab_all": "[role='tab']:has-text('All Jobs')",
+  "job_tab_applied": "[role='tab']:has-text('Applied Jobs')",
+  "job_list_scroll_container": "#job-list",
+
+  "detail_panel": "div.job-detail",
+  "detail_opening_overview": "section.job-detail__overview",
+  "detail_category": "[data-field='category']",
+  "detail_role": "[data-field='role']",
+  "detail_job_functions": "[data-field='jobFunction']",
+  "detail_compensation": "[data-field='ctc']",
+  "detail_other_info": "[data-field='otherInfo']",
+  "detail_job_description": "section.job-detail__description",
+  "detail_hiring_workflow": "section.job-detail__workflow",
+  "detail_eligibility": "section.job-detail__eligibility",
+  "detail_additional_questions": "section.job-detail__questions",
+  "detail_required_skills": "section.job-detail__skills"
+}
