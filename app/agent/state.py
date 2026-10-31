@@ -93,6 +93,8 @@ class AgentState:
     retry_topics: list[str] = field(default_factory=list)
     unknowns: list[str] = field(default_factory=list)
     trace: list[str] = field(default_factory=list)
+    report_markdown: str = ""  # set by the writer node (week 3)
+    pending_approvals: int = 0  # resume bullets awaiting student approval (week 3)
 
     @property
     def company(self) -> str:
@@ -127,6 +129,8 @@ class AgentState:
             "retry_count": self.retry_count,
             "unknowns": self.unknowns,
             "trace": self.trace,
+            "report_markdown": self.report_markdown,
+            "pending_approvals": self.pending_approvals,
         }
 
 
@@ -137,3 +141,4 @@ class AgentDeps:
     settings: Settings
     call_tool: ToolCaller
     llm: LlmClient | None = None
+    session: Any | None = None  # SQLAlchemy Session, injected by runner (week 3)

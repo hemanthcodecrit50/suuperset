@@ -11,6 +11,7 @@ Examples::
     python -m app.main tools       # list the agent tools (week 1)
     python -m app.main tool NAME   # call one agent tool with JSON arguments
     python -m app.main agent run ID  # run the agent graph on one opportunity
+    python -m app.main resume-review  # review pending resume suggestions
 """
 
 from __future__ import annotations
@@ -375,6 +376,7 @@ def _cmd_resume(args: argparse.Namespace) -> int:
                 "page — suggestions must be grounded in real experience."
             )
             return 0
+
         if not requirements:
             print(
                 "This job has no published JD or skills, so there is nothing "
@@ -395,6 +397,36 @@ def _cmd_resume(args: argparse.Namespace) -> int:
             print(f"  bullet    : {item.bullet}")
             print(f"  evidence  : {item.evidence or 'MISSING - do not use'}")
             print(f"  approved  : {item.approved}")
+    return 0
+
+
+def _cmd_resume_review(args: argparse.Namespace) -> int:
+    """List pending bullets and optionally approve selected suggestions."""
+    from app.models import ResumeSuggestion
+
+    with session_scope() as session:
+        for suggestion_id in args.approve or []:
+            suggestion = session.get(ResumeSuggestion, suggestion_id)
+            if suggestion is None:
+                print(f"No resume suggestion with id {suggestion_id}.")
+                return 1
+            suggestion.approved = True
+        pending = session.scalars(
+            select(ResumeSuggestion)
+            .where(ResumeSuggestion.approved.is_(False))
+            .order_by(ResumeSuggestion.id)
+        ).all()
+        if args.approve:
+            print(f"Approved {len(args.approve)} resume suggestion(s).")
+        if not pending:
+            print("No pending resume suggestions.")
+            return 0
+        print("Pending resume suggestions:")
+        for item in pending:
+            print(f"[{item.id}] {item.bullet}")
+            if item.requirement:
+                print(f"    Requirement: {item.requirement}")
+        print("Approve with: python -m app.main resume-review --approve ID")
     return 0
 
 
@@ -830,6 +862,13 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--no-model", action="store_true",
                         help="Skip the LLM and return placeholders only")
     resume.set_defaults(func=_cmd_resume)
+    review = sub.add_parser(
+        "resume-review", help="Review and approve pending resume suggestions"
+    )
+    review.add_argument(
+        "--approve", type=int, action="append", help="Suggestion id to approve"
+    )
+    review.set_defaults(func=_cmd_resume_review)
 
     return parser
 

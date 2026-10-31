@@ -433,6 +433,7 @@ def _persist(
             # Research agent: build the document, then format the message from
             # the same facts so the file and the alert never disagree.
             document = build_document(record, change, changes=changes)
+            brief = None
             if queue_alerts and result.items_briefed < settings.agent_max_briefs_per_run:
                 brief = _agent_brief(session, settings, record, change, changes)
                 if brief:
@@ -442,7 +443,11 @@ def _persist(
                 document, record.company_name, record.title
             )
             message = format_telegram(
-                record, change, changes=changes, document_path=document_path
+                record,
+                change,
+                changes=changes,
+                document_path=document_path,
+                brief=brief,
             )
             maybe_queue(
                 change_type=change,

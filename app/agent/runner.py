@@ -50,6 +50,7 @@ def analyze_opportunity(
 ) -> BriefResult:
     """Run the graph for one opportunity and return the rendered brief."""
     deps = deps or default_deps()
+    deps.session = session
     session.flush()
 
     if should_save:

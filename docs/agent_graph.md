@@ -1,16 +1,18 @@
-# Agent graph (week 2)
+# Agent graph (week 3)
 
 A bounded state machine in `app/agent/`. It turns a new or changed posting into a
 verified brief. It never applies and never writes to the portal.
 
 ```
 route ─ drop ──────────────────────────────► end
-      ├ short ─ match ───────────────────────► end
+      ├ short ─ match ─ writer ─ approval ───► end
       └ full ─ plan ─ [researcher ‖ matcher ‖ resume advisor] ─ critic
                                                    │ >30% unsupported, first time
                                                    └─► researcher (strict) ─ critic
                                                    ▼
-                                       drop unsupported ─► end
+                                       drop unsupported
+                                                   ▼
+                                       writer ─ approval gate ─► end
 ```
 
 | Node | File | What it does |
@@ -21,6 +23,8 @@ route ─ drop ─────────────────────�
 | Matcher | `matcher.py` | `score_fit` tool: hard eligibility plus fit score. Unknown stays unknown |
 | Resume advisor | `resume_advisor.py` | `rank_portfolio` tool: projects to lead with, honest gaps, optional grounded bullets. Planned projects are never used |
 | Critic | `critic.py` | Checks each claim against its cited source: numbers must appear exactly, 60% of key words must appear. If the snippet fails it fetches the page (max 3 per brief). Also checks resume bullets against the project record |
+| Writer | `writer.py` | Produces a polished report from verified claims, with a deterministic fallback |
+| Approval gate | `approval.py` | Stores grounded resume bullets as `approved=false` for student review |
 | Memory | `memory.py`, `store.py` | Preferences, portfolio and cached company evidence (7 days) |
 
 ## Retry rule
@@ -44,7 +48,5 @@ seeding run, capped at `AGENT_MAX_BRIEFS_PER_RUN`, and a failure is logged witho
 stopping collection. A brief is stored in `research_reports` (`kind=agent_brief`)
 and reused while the posting's content hash is unchanged.
 
-## Not yet (week 3)
-
-The writer node, the Telegram message built from the brief, and the resume
-approval gate. `brief.py` is a plain renderer the writer will replace.
+Telegram delivery includes the same report returned by the writer. Review
+pending bullets with `python -m app.main resume-review`.

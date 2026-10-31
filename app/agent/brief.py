@@ -10,6 +10,13 @@ DECISION_QUESTION = "Should I apply, and how do I prepare and present myself?"
 
 def render_brief(state: AgentState) -> str:
     """Markdown with fit, risks, cited company facts, prep and resume advice."""
+    if state.report_markdown:
+        return state.report_markdown
+    return render_template(state)
+
+
+def render_template(state: AgentState) -> str:
+    """Render the deterministic evidence-only report used by the writer fallback."""
     if state.route is Route.DROP:
         return ""
     lines = ["## Agent brief", "", f"_{DECISION_QUESTION}_", ""]

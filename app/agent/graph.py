@@ -8,12 +8,14 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 from app.agent import critic
+from app.agent.approval import approval_gate
 from app.agent.matcher import match
 from app.agent.planner import plan_tasks
 from app.agent.researcher import research
 from app.agent.resume_advisor import advise_resume
 from app.agent.router import route_change
 from app.agent.state import AgentDeps, AgentState, Route
+from app.agent.writer import write_report
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +31,21 @@ def run_graph(state: AgentState, deps: AgentDeps) -> AgentState:
     if state.route is Route.DROP:
         return state
     if state.route is Route.SHORT:
-        return _timed("match", match, state, deps)
+        state = _timed("match", match, state, deps)
+        return _write_and_approve(state, deps)
 
     state = _timed("plan", _plan, state, deps)
     state = _timed("specialists", _run_specialists, state, deps)
     state = _timed("critic", critic.check_claims, state, deps)
     if critic.needs_retry(state, deps):
         state = _retry_research(state, deps)
-    return _timed("finalise", _finalise, state, deps)
+    state = _timed("finalise", _finalise, state, deps)
+    return _write_and_approve(state, deps)
+
+
+def _write_and_approve(state: AgentState, deps: AgentDeps) -> AgentState:
+    state = _timed("writer", write_report, state, deps)
+    return _timed("approval", approval_gate, state, deps)
 
 
 def _route(state: AgentState, deps: AgentDeps) -> AgentState:

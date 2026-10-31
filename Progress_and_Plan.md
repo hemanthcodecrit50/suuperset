@@ -176,22 +176,20 @@ Focus: a system that works end to end on real portal data. Evaluation work (gold
 | Search backend upgrade | Done (week 1) |
 | Agent graph: router, planner, parallel researcher / matcher / resume advisor, critic with one retry | Done (week 2) |
 | Graph wired into the poll job (brief appended to the research document) | Done (week 2) |
-| Writer node and Telegram message built from the report | Not started (week 3) |
-| Resume approval gate | Not started (week 3) |
+| Writer node and Telegram message built from the report | Done (week 3) |
+| Resume approval gate | Done (week 3) |
 
-Week 2 is complete: see `docs/agent_graph.md`. Week 1 is complete: nine tools return a recoverable `{ok, tool, result|error}`
+Week 3 is complete: see `docs/agent_graph.md`. Week 1 is complete: nine tools return a recoverable `{ok, tool, result|error}`
 envelope, `parse_jd` is deterministic, `fetch_page` is allow-listed and
 size-capped, and search is cached for 7 days with a free/keyless-first backend.
 All 54 new tests pass, and the CLI can invoke any tool (`python -m app.main
-tools`, `python -m app.main tool <name>`). The week-2 graph still has to be
-built on top of `call_tool`.
+tools`, `python -m app.main tool <name>`).
 
 Dropped: golden set, evaluation metrics and harness, ablations, LLM judge, pilot rating.
 
 ## 5. Immediate next step
 
-Week 1 is done. Start week 2 by building the bounded agent graph on top of
-`app.agent.tools.call_tool`:
+Week 3 is done. Continue with evaluation and pilot feedback:
 
 1. Define the shared graph state: opportunity, student profile, evidence items
    (each with a source URL), report draft, critic verdict, retry count.
@@ -200,5 +198,4 @@ Week 1 is done. Start week 2 by building the bounded agent graph on top of
 3. Run the researcher, matcher and resume advisor in parallel as specialists.
 4. Add the critic with exactly one researcher retry; drop unsupported claims and
    label what stays unknown.
-5. Wire the graph into the existing poll job behind a feature flag, leaving the
-   writer and delivery for week 3.
+5. Measure report grounding, approval usefulness, and delivery reliability.

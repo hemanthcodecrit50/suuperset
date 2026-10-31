@@ -269,6 +269,7 @@ def format_telegram(
     document_path: Path | None = None,
     now: dt.datetime | None = None,
     reminder_days_left: int | None = None,
+    brief: str | None = None,
 ) -> str:
     """Render the neat Telegram message from the same facts.
 
@@ -325,5 +326,7 @@ def format_telegram(
         lines.append(str(facts["link"]))
     if document_path is not None:
         lines.append(f"\U0001F4C4 {document_path}")
+    if brief:
+        lines.extend(["", brief.rstrip()])
 
     return "\n".join(lines)

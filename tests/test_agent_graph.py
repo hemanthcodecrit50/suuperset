@@ -70,6 +70,8 @@ def test_trace_lists_the_nodes_that_ran():
         "specialists",
         "critic",
         "finalise",
+        "writer",
+        "approval",
     ]
 
 
