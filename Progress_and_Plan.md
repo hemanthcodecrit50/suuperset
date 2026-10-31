@@ -174,11 +174,12 @@ Focus: a system that works end to end on real portal data. Evaluation work (gold
 | Tool registry and JSON schemas (`app/agent/tools.py`) | Done (week 1) |
 | `parse_jd` and `fetch_page` tools | Done (week 1) |
 | Search backend upgrade | Done (week 1) |
-| Agent graph (router, planner, specialists, critic, writer) | Not started (week 2) |
-| Resume advisor with approval gate | Not started (week 3) |
-| Wire agent into the poll job and Telegram | Not started (week 3) |
+| Agent graph: router, planner, parallel researcher / matcher / resume advisor, critic with one retry | Done (week 2) |
+| Graph wired into the poll job (brief appended to the research document) | Done (week 2) |
+| Writer node and Telegram message built from the report | Not started (week 3) |
+| Resume approval gate | Not started (week 3) |
 
-Week 1 is complete: nine tools return a recoverable `{ok, tool, result|error}`
+Week 2 is complete: see `docs/agent_graph.md`. Week 1 is complete: nine tools return a recoverable `{ok, tool, result|error}`
 envelope, `parse_jd` is deterministic, `fetch_page` is allow-listed and
 size-capped, and search is cached for 7 days with a free/keyless-first backend.
 All 54 new tests pass, and the CLI can invoke any tool (`python -m app.main

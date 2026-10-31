@@ -51,6 +51,11 @@ def _tokens(text: str) -> set[str]:
     }
 
 
+def meaningful_tokens(text: str) -> set[str]:
+    """Lowercase content words of a text, without stopwords."""
+    return _tokens(text)
+
+
 def rank_portfolio_items(
     requirements: Sequence[str],
     portfolio_items: Sequence[Mapping[str, Any]],

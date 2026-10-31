@@ -15,10 +15,10 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
-from app.config import get_settings
 from app.services.alerts import escape_markdown
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def _slug(value: str | None, fallback: str = "unknown") -> str:
 def _aware(value: dt.datetime | None) -> dt.datetime | None:
     if value is None:
         return None
-    return value if value.tzinfo else value.replace(tzinfo=dt.timezone.utc)
+    return value if value.tzinfo else value.replace(tzinfo=dt.UTC)
 
 
 def status_tag(
@@ -172,7 +172,7 @@ def build_document(
     use_model: bool = True,
 ) -> str:
     """Render the markdown document for a posting."""
-    now = now or dt.datetime.now(dt.timezone.utc)
+    now = now or dt.datetime.now(dt.UTC)
     facts = _facts(record, now)
     emoji, label = status_tag(facts["application_status"], change_type)
     summary = _llm_summary(facts) if use_model else None
@@ -243,7 +243,7 @@ def write_document(
     posting changed again), a ``-2``/``-3`` suffix is added rather than
     overwriting the earlier version.
     """
-    now = now or dt.datetime.now(dt.timezone.utc)
+    now = now or dt.datetime.now(dt.UTC)
     base = root or RESEARCH_DIR
     folder = base / _slug(company, "unknown-company")
     folder.mkdir(parents=True, exist_ok=True)
@@ -275,7 +275,7 @@ def format_telegram(
     ``reminder_days_left`` turns the message into a deadline reminder, which
     keeps one renderer for every alert type.
     """
-    now = now or dt.datetime.now(dt.timezone.utc)
+    now = now or dt.datetime.now(dt.UTC)
     facts = _facts(record, now)
     emoji, label = status_tag(facts["application_status"], change_type)
     if reminder_days_left is not None:

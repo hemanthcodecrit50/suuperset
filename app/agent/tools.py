@@ -26,8 +26,9 @@ import datetime as dt
 import hashlib
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -35,8 +36,15 @@ from sqlalchemy.orm import Session
 from app.collector import change_detector
 from app.config import Settings, get_settings
 from app.models import Application, Opportunity, OpportunityVersion, PortfolioItem
-from app.services import jd_parser, pages, preferences, research, resume, search
-from app.services import matching
+from app.services import (
+    jd_parser,
+    matching,
+    pages,
+    preferences,
+    research,
+    resume,
+    search,
+)
 from app.services.applications import find_opportunity
 
 logger = logging.getLogger(__name__)
@@ -77,7 +85,7 @@ def _iso(value: dt.datetime | None) -> str | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        value = value.replace(tzinfo=dt.timezone.utc)
+        value = value.replace(tzinfo=dt.UTC)
     return value.isoformat()
 
 
@@ -282,7 +290,7 @@ def _tool_parse_jd(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         session = ctx.require_session()
         raw = dict(opportunity.raw or {})
         raw["parsed_jd"] = parsed.to_dict()
-        raw["parsed_jd_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        raw["parsed_jd_at"] = dt.datetime.now(dt.UTC).isoformat()
         opportunity.raw = raw
         session.flush()
 
@@ -849,6 +857,6 @@ def call_tool(
     except ToolError as exc:
         logger.info("Tool %s rejected: %s", name, exc)
         return {"ok": False, "tool": name, "error": str(exc)}
-    except Exception as exc:  # noqa: BLE001 - one bad tool must not stop the agent
+    except Exception as exc:
         logger.exception("Tool %s failed", name)
         return {"ok": False, "tool": name, "error": f"{type(exc).__name__}: {exc}"}

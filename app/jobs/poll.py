@@ -56,6 +56,7 @@ class PollResult:
     items_filtered: int = 0
     items_enriched: int = 0
     items_documented: int = 0
+    items_briefed: int = 0
     alerts_queued: int = 0
     error: str | None = None
     details: dict = field(default_factory=dict)
@@ -432,6 +433,11 @@ def _persist(
             # Research agent: build the document, then format the message from
             # the same facts so the file and the alert never disagree.
             document = build_document(record, change, changes=changes)
+            if queue_alerts and result.items_briefed < settings.agent_max_briefs_per_run:
+                brief = _agent_brief(session, settings, record, change, changes)
+                if brief:
+                    document += "\n" + brief
+                    result.items_briefed += 1
             document_path = write_document(
                 document, record.company_name, record.title
             )
@@ -464,6 +470,8 @@ def _persist(
             cap,
         )
         result.details["alerts_suppressed"] = suppressed
+    if result.items_briefed:
+        result.details["agent_briefs"] = result.items_briefed
     if result.items_filtered:
         result.details["below_relevance_threshold"] = result.items_filtered
         logger.info(
@@ -472,6 +480,24 @@ def _persist(
             preferences.min_alert_score,
         )
     return result
+
+
+def _agent_brief(session, settings: Settings, record, change: str, changes: dict) -> str:
+    """Run the agent graph for one item; a failure must never stop collection."""
+    from app.agent.runner import analyze_opportunity, default_deps
+
+    if not settings.agent_enabled:
+        return ""
+    # Flush first so the savepoint below only covers the agent's own writes
+    session.flush()
+    try:
+        with session.begin_nested():
+            return analyze_opportunity(
+                session, record, change, changes, deps=default_deps(settings)
+            ).markdown
+    except Exception:  # noqa: BLE001 - the agent is an add-on to collection
+        logger.exception("Agent brief failed for opportunity %s", record.id)
+        return ""
 
 
 def _next_action_for(record) -> str | None:

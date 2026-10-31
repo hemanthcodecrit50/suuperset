@@ -35,6 +35,7 @@ class Evidence:
     title: str | None = None
     published_at: str | None = None
     excerpt: str | None = None
+    topic: str = "general"  # which planned lookup found it
 
 
 @dataclass

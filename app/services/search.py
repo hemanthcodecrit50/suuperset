@@ -22,6 +22,7 @@ import datetime as dt
 import html
 import logging
 import re
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Iterable
@@ -105,16 +106,19 @@ def _get_json(
 # GDELT asks for at most one request every 5 seconds. The throttle is
 # process-wide so several queries in one run still stay inside that budget.
 _GDELT_LAST_CALL = 0.0
+_GDELT_LOCK = threading.Lock()
 
 
 def _throttle_gdelt(seconds: float) -> None:
     global _GDELT_LAST_CALL
     if seconds <= 0:
         return
-    wait = seconds - (time.monotonic() - _GDELT_LAST_CALL)
-    if wait > 0:
-        time.sleep(wait)
-    _GDELT_LAST_CALL = time.monotonic()
+    # The lock keeps parallel researcher threads from all firing at once
+    with _GDELT_LOCK:
+        wait = seconds - (time.monotonic() - _GDELT_LAST_CALL)
+        if wait > 0:
+            time.sleep(wait)
+        _GDELT_LAST_CALL = time.monotonic()
 
 
 @dataclass

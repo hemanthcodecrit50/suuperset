@@ -10,6 +10,7 @@ Examples::
     python -m app.main stats       # show recent poll-run health
     python -m app.main tools       # list the agent tools (week 1)
     python -m app.main tool NAME   # call one agent tool with JSON arguments
+    python -m app.main agent run ID  # run the agent graph on one opportunity
 """
 
 from __future__ import annotations
@@ -637,6 +638,28 @@ def _cmd_tool(args: argparse.Namespace) -> int:
     return 0 if result.get("ok") else 1
 
 
+def _cmd_agent_run(args: argparse.Namespace) -> int:
+    """Run the agent graph for one stored opportunity and print its brief."""
+    import json
+
+    from app.agent.runner import analyze_opportunity
+    from app.models import Opportunity
+
+    with session_scope() as session:
+        opportunity = session.get(Opportunity, args.opportunity_id)
+        if opportunity is None:
+            print(f"No opportunity with id {args.opportunity_id}.")
+            return 1
+        result = analyze_opportunity(
+            session, opportunity, args.change, should_save=not args.no_save
+        )
+    if args.json and result.state is not None:
+        print(json.dumps(result.state.to_dict(), indent=2, default=str))
+    else:
+        print(result.markdown or "Dropped by the router: nothing to brief.")
+    return 0
+
+
 def _cmd_install_timers(_args: argparse.Namespace) -> int:
     """Print the commands to install the systemd user timers."""
     project = Path(__file__).resolve().parent.parent
@@ -713,6 +736,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Single argument; repeatable. Values are parsed as JSON when possible.",
     )
     tool.set_defaults(func=_cmd_tool)
+
+    # --- agent graph (week 2) ------------------------------------------
+    agent = sub.add_parser("agent", help="Run the agent graph")
+    agent_sub = agent.add_subparsers(dest="agent_command", required=True)
+    agent_run = agent_sub.add_parser("run", help="Brief one stored opportunity")
+    agent_run.add_argument("opportunity_id", type=int)
+    agent_run.add_argument("--change", choices=("new", "changed"), default="new")
+    agent_run.add_argument("--no-save", action="store_true", help="Do not store the brief")
+    agent_run.add_argument("--json", action="store_true", help="Print the full state")
+    agent_run.set_defaults(func=_cmd_agent_run)
 
     # --- testing --------------------------------------------------------
     demo = sub.add_parser(

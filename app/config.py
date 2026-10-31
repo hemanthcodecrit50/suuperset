@@ -123,6 +123,17 @@ class Settings(BaseSettings):
     fetch_page_timeout_seconds: float = 20.0
     fetch_page_cache_ttl_hours: int = 168
 
+    # --- Agent graph (week 2) -------------------------------------------
+    agent_enabled: bool = True
+    # Cap on full briefs per poll run, so a busy day cannot flood the search APIs.
+    agent_max_briefs_per_run: int = 5
+    # The critic retries once when more than this share of claims is unsupported.
+    agent_max_unsupported_ratio: float = 0.3
+    # Pages the critic may download per brief to verify a claim.
+    agent_max_page_checks: int = 3
+    # Stored company evidence is reused for this long before it is researched again.
+    agent_company_cache_days: int = 7
+
     @property
     def storage_state_path(self) -> Path:
         return Path(self.superset_storage_state)
