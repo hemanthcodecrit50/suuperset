@@ -5,7 +5,15 @@ description = "Superset campus placement intelligence system"
 requires-python = ">=3.11"
 
 [tool.setuptools]
-packages = ["app", "app.collector", "app.services", "app.jobs", "scripts"]
+packages = [
+    "app",
+    "app.agent",
+    "app.collector",
+    "app.jobs",
+    "app.services",
+    "app.ui",
+    "scripts",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

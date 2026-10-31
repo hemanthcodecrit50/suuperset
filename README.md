@@ -18,6 +18,8 @@ company research and evidence-backed resume suggestions.
 - **Personal tracking** — application statuses, preferences, deadlines.
 - **Research** — two-stage evidence-first company/role reports (structure + caching).
 - **Resume intelligence** — JD ↔ verified portfolio matching, approval required.
+- **Agent tools** — a schema-backed tool layer for the week-2 graph, including a
+  deterministic JD parser, allow-listed page fetch and a composite search backend.
 - **Dashboard** — Streamlit skeleton for opportunities, deadlines and health.
 
 ## Repository layout
@@ -41,11 +43,16 @@ app/
 │   ├── alerts.py               # Telegram/email delivery + retries
 │   ├── matching.py             # relevance scoring + hard eligibility rules
 │   ├── research.py             # sourced company reports
-│   └── resume.py               # evidence-backed resume suggestions
+│   ├── resume.py               # evidence-backed resume suggestions
+│   ├── search.py               # composite search: Wikipedia/Wikidata, GDELT, Brave, DDG
+│   ├── jd_parser.py            # deterministic JD extraction (skills, rounds, bond, pay)
+│   ├── pages.py                # allow-listed, size-capped page fetch for verification
+│   └── cache.py                # 7-day file cache for search results and pages
 └── jobs/
     └── poll.py                 # lock, retries, persistence, heartbeat
 agent/
-└── research_agent.py          # document.md + tagged Telegram message
+├── research_agent.py          # document.md + tagged Telegram message
+└── tools.py                   # tool registry + JSON schemas (week 1)
 sql/schema.sql                  # PostgreSQL schema
 scripts/login.py                # interactive SSO login bootstrap
 deploy/                         # systemd service + timer templates
@@ -168,6 +175,36 @@ resume engine can only ground suggestions in real projects.
 
 AI features need a model — see [`docs/ai_setup.md`](docs/ai_setup.md)
 (free + private with local Ollama, or a paid OpenCode key).
+
+## Agent tools (week 1)
+
+The week-2 graph will run on top of a schema-backed tool layer. Existing
+services are wrapped, not rewritten.
+
+```bash
+python -m app.main tools                 # list tools
+python -m app.main tools --json          # JSON schemas for function calling
+python -m app.main tool parse_jd --args '{"text": "Required skills: Python, SQL"}'
+python -m app.main tool parse_jd --arg opportunity_id=12 --arg persist=true
+python -m app.main tool web_search --arg company=Zensar
+python -m app.main tool fetch_page --args '{"url": "https://en.wikipedia.org/wiki/Zensar_Technologies"}'
+```
+
+| Tool | Wraps |
+| --- | --- |
+| `get_opportunity` | posting + version history |
+| `parse_jd` | deterministic JD parser |
+| `web_search` | Wikipedia/Wikidata + GDELT + optional Brave + DuckDuckGo |
+| `fetch_page` | allow-listed, size-capped page text for claim verification |
+| `score_fit` | eligibility + weighted relevance score |
+| `rank_portfolio` | JD ↔ verified project ranking |
+| `send_alert` | deduplicated notification queue |
+| `research_company` | cited company/role brief |
+| `get_student_profile` | preferences + portfolio memory |
+
+Search results and fetched pages are cached for 7 days. `fetch_page` rejects
+private addresses, re-checks redirects, and only fetches allow-listed hosts.
+Full contracts and configuration: [`docs/agent_tools.md`](docs/agent_tools.md).
 
 ## What it does now
 

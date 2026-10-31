@@ -28,6 +28,9 @@ logs/
 *.pid
 *.lock
 
+# Research caches (search results and fetched pages)
+.cache/
+
 # Secrets and sensitive state
 .env
 .env.*

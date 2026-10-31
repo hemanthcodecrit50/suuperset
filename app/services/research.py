@@ -31,7 +31,8 @@ class Evidence:
 
     claim: str
     source_url: str
-    source_type: str = "web"  # official | news | web
+    source_type: str = "web"  # official | news | reference | anecdotal | web
+    title: str | None = None
     published_at: str | None = None
     excerpt: str | None = None
 
@@ -80,18 +81,23 @@ def _hash_report(report: ResearchReport) -> str:
 
 
 def gather_evidence(
-    company: str, role: str | None = None, backend: SearchBackend | None = None
+    company: str,
+    role: str | None = None,
+    backend: SearchBackend | None = None,
+    *,
+    settings: Settings | None = None,
 ) -> list[Evidence]:
     """Stage 1: collect sources for a company/role.
 
-    Defaults to the free DuckDuckGo Instant Answer backend. Any failure yields
-    no evidence, which forces the report to stay honest about what is unknown.
+    Defaults to the composite backend (Wikipedia + recent news + optional
+    Brave, with DuckDuckGo as a fallback). Any failure yields no evidence,
+    which forces the report to stay honest about what is unknown.
     """
     if backend is None:
         try:
-            from app.services.search import DuckDuckGoBackend
+            from app.services.search import default_search_backend
 
-            backend = DuckDuckGoBackend()
+            backend = default_search_backend(settings)
         except Exception as exc:  # noqa: BLE001 - never break collection
             logger.warning("No search backend available: %s", exc)
             backend = NullSearchBackend()
@@ -130,7 +136,7 @@ def generate_report(
 ) -> ResearchReport:
     """Stage 2: produce a structured, cited report from gathered evidence."""
     settings = settings or get_settings()
-    evidence = gather_evidence(company, role, backend=backend)
+    evidence = gather_evidence(company, role, backend=backend, settings=settings)
 
     report = ResearchReport(
         company=company,
@@ -172,7 +178,13 @@ def generate_report(
                 "company": company,
                 "role": role,
                 "evidence": [
-                    {"claim": e.claim, "source": e.source_url, "type": e.source_type}
+                    {
+                        "claim": e.claim,
+                        "source": e.source_url,
+                        "type": e.source_type,
+                        "title": e.title,
+                        "published_at": e.published_at,
+                    }
                     for e in evidence
                 ],
             }
@@ -242,7 +254,14 @@ def generate_and_store(
             summary=report.summary,
             content=report.sections,
             sources=[
-                {"url": e.source_url, "claim": e.claim, "type": e.source_type}
+                {
+                    "url": e.source_url,
+                    "claim": e.claim,
+                    "type": e.source_type,
+                    "title": e.title,
+                    "published_at": e.published_at,
+                    "excerpt": e.excerpt,
+                }
                 for e in report.evidence
             ],
             model=report.model,
@@ -266,6 +285,9 @@ def _report_from_row(row, company: str) -> ResearchReport:
                 claim=item.get("claim", ""),
                 source_url=item.get("url", ""),
                 source_type=item.get("type", "web"),
+                title=item.get("title"),
+                published_at=item.get("published_at"),
+                excerpt=item.get("excerpt"),
             )
             for item in (row.sources or [])
             if isinstance(item, dict)

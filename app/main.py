@@ -8,6 +8,8 @@ Examples::
     python -m app.main deliver     # drain the alert queue
     python -m app.main heartbeat   # raise an alert if polling is unhealthy
     python -m app.main stats       # show recent poll-run health
+    python -m app.main tools       # list the agent tools (week 1)
+    python -m app.main tool NAME   # call one agent tool with JSON arguments
 """
 
 from __future__ import annotations
@@ -580,6 +582,61 @@ def _cmd_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_tools(args: argparse.Namespace) -> int:
+    """List the tools the agent can call."""
+    import json
+
+    from app.agent.tools import tool_specs
+
+    specs = tool_specs()
+    if args.json:
+        print(json.dumps(specs, indent=2))
+        return 0
+    for spec in specs:
+        print(f"{spec['name']:<20} {spec['description']}")
+    return 0
+
+
+def _cmd_tool(args: argparse.Namespace) -> int:
+    """Call one agent tool with JSON arguments.
+
+    Example::
+
+        python -m app.main tool parse_jd --arg opportunity_id=12
+        python -m app.main tool web_search --args '{"company": "Zensar"}'
+    """
+    import json
+
+    from app.agent.tools import ToolContext, call_tool
+
+    if args.args:
+        try:
+            arguments = json.loads(args.args)
+        except json.JSONDecodeError as exc:
+            print(f"Invalid --args JSON: {exc}")
+            return 1
+        if not isinstance(arguments, dict):
+            print("--args must be a JSON object.")
+            return 1
+    else:
+        arguments = {}
+
+    for item in args.arg or []:
+        if "=" not in item:
+            print(f"Invalid --arg {item!r}; expected KEY=VALUE.")
+            return 1
+        key, value = item.split("=", 1)
+        try:
+            arguments[key] = json.loads(value)
+        except json.JSONDecodeError:
+            arguments[key] = value
+
+    with session_scope() as session:
+        result = call_tool(args.name, arguments, ToolContext(session=session))
+    print(json.dumps(result, indent=2, default=str))
+    return 0 if result.get("ok") else 1
+
+
 def _cmd_install_timers(_args: argparse.Namespace) -> int:
     """Print the commands to install the systemd user timers."""
     project = Path(__file__).resolve().parent.parent
@@ -640,6 +697,22 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Print systemd user timer install steps").set_defaults(func=_cmd_install_timers)
     sub.add_parser("migrate",
                    help="Add missing columns to an existing database").set_defaults(func=_cmd_migrate)
+
+    # --- agent tools (week 1) ------------------------------------------
+    tools = sub.add_parser("tools", help="List the agent tools and their schemas")
+    tools.add_argument("--json", action="store_true", help="Print full JSON schemas")
+    tools.set_defaults(func=_cmd_tools)
+
+    tool = sub.add_parser("tool", help="Call one agent tool")
+    tool.add_argument("name", help="Tool name, e.g. parse_jd or web_search")
+    tool.add_argument("--args", default="", help="JSON object of arguments")
+    tool.add_argument(
+        "--arg",
+        action="append",
+        metavar="KEY=VALUE",
+        help="Single argument; repeatable. Values are parsed as JSON when possible.",
+    )
+    tool.set_defaults(func=_cmd_tool)
 
     # --- testing --------------------------------------------------------
     demo = sub.add_parser(
