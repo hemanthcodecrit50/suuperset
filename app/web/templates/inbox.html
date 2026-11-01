@@ -1,55 +1,67 @@
 {% extends "base.html" %}
-{% from "_macros.html" import avatar, deadline_chip, fit_meter %}
+{% from "_macros.html" import mark, deadline, fit %}
 {% block content %}
 <div class="page-head">
   <div>
     <h1>Inbox</h1>
-    <p class="lede">Every posting from Superset, with a verified brief when the agent has run.</p>
+    <p class="lede">Campus postings from Superset. Open one to read its decision brief.</p>
   </div>
-  <form class="search" method="get" action="/">
+  <form class="search" method="get" action="/" role="search">
     <input type="hidden" name="view" value="{{ view }}">
     <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-    <input type="search" name="q" value="{{ q }}" placeholder="Search role or company" aria-label="Search">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search role or company" aria-label="Search" data-search>
+    <kbd>/</kbd>
   </form>
 </div>
 
-<div class="stats">
-  <a class="stat" href="/?view=new"><span class="stat-num">{{ stats.new_this_week }}</span><span class="stat-label">New this week</span></a>
-  <a class="stat {{ 'alert' if stats.closing_soon }}" href="/?view=open"><span class="stat-num">{{ stats.closing_soon }}</span><span class="stat-label">Closing in 3 days</span></a>
-  <a class="stat" href="/?view=briefed"><span class="stat-num">{{ stats.briefs_ready }}</span><span class="stat-label">Briefs ready</span></a>
-  <a class="stat" href="/approvals"><span class="stat-num">{{ stats.pending_approvals }}</span><span class="stat-label">Waiting approval</span></a>
+<div class="summary-line">
+  <a href="/?view=open"><strong>{{ stats.view_counts.open }}</strong>open</a>
+  <a href="/?view=open" class="{{ 'urgent' if stats.closing_soon }}"><strong>{{ stats.closing_soon }}</strong>closing in 3 days</a>
+  <a href="/?view=briefed"><strong>{{ stats.briefs_ready }}</strong>briefs ready</a>
+  <a href="/approvals"><strong>{{ stats.pending_approvals }}</strong>awaiting approval</a>
 </div>
 
-<div class="tabs" role="tablist">
+<nav class="tabs" aria-label="Filter postings">
   {% for option in views %}
-    <a role="tab" href="/?view={{ option }}{% if q %}&q={{ q|urlencode }}{% endif %}" class="{{ 'active' if option == view }}">{{ option|capitalize }}</a>
-  {% endfor %}
-</div>
-
-{% if not rows %}
-  <div class="empty">
-    <svg viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/></svg>
-    <p>{% if q or view != 'all' %}Nothing matches this filter.{% else %}No postings yet. Connect Superset and run a poll from <a href="/profile">Profile</a>.{% endif %}</p>
-  </div>
-{% endif %}
-
-<ul class="cards">
-  {% for row in rows %}
-  <li>
-    <a class="card posting-card" href="/postings/{{ row.id }}">
-      {{ avatar(row.company) }}
-      <div class="card-main">
-        <div class="title">{{ row.title }}{% if row.is_new %}<span class="new-tag">New</span>{% endif %}</div>
-        <div class="sub">{{ row.company }}{% if row.location %} · {{ row.location }}{% endif %}</div>
-      </div>
-      <div class="chips">
-        {% if row.has_brief %}<span class="chip accent">Brief ready</span>{% endif %}
-        {% if row.status %}<span class="chip info">{{ row.status|pretty|capitalize }}</span>{% endif %}
-        {{ deadline_chip(row.days_left, row.deadline) }}
-        {{ fit_meter(row.fit_score, row.eligible) }}
-      </div>
+    <a href="/?view={{ option }}{% if q %}&q={{ q|urlencode }}{% endif %}" class="{{ 'active' if option == view }}">
+      {{ option|capitalize }}<span class="tab-count">{{ stats.view_counts[option] }}</span>
     </a>
-  </li>
   {% endfor %}
-</ul>
+</nav>
+
+{% if rows %}
+<table class="table">
+  <thead>
+    <tr><th>Role and company</th><th>Fit</th><th>Brief</th><th>Status</th><th class="num">Deadline</th></tr>
+  </thead>
+  <tbody>
+  {% for row in rows %}
+    <tr class="row-link" data-href="/postings/{{ row.id }}">
+      <td>
+        <div class="role">
+          {{ mark(row.company) }}
+          <div>
+            <div class="role-title"><a href="/postings/{{ row.id }}">{{ row.title }}</a>{% if row.is_new %}<span class="tag accent new-flag">New</span>{% endif %}</div>
+            <div class="role-sub">{{ row.company }}{% if row.location %} · {{ row.location }}{% endif %}</div>
+          </div>
+        </div>
+      </td>
+      <td>{{ fit(row.fit_score, row.eligible) }}</td>
+      <td>{% if row.has_brief %}<span class="tag green">Ready</span>{% else %}<span class="faint">—</span>{% endif %}</td>
+      <td class="muted nowrap">{{ (row.status|pretty or '—')|capitalize }}</td>
+      <td class="num">{{ deadline(row.days_left, row.deadline) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<div class="table-foot">
+  <span>{{ rows|length }} posting{{ '' if rows|length == 1 else 's' }}{% if view == 'open' %}, soonest deadline first{% endif %}</span>
+  <span>Press <kbd>/</kbd> to search</span>
+</div>
+{% else %}
+<div class="empty" style="margin-top: 20px">
+  {% if q or view != 'all' %}<strong>Nothing matches this filter.</strong>Try another tab or clear the search.
+  {% else %}<strong>No postings yet.</strong>Connect Superset and run a poll from <a href="/profile">Profile</a>.{% endif %}
+</div>
+{% endif %}
 {% endblock %}

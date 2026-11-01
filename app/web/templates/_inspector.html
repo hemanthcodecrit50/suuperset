@@ -1,0 +1,78 @@
+<div id="inspector" class="dev-layer"
+     hx-get="/postings/{{ record.id }}/inspector" hx-swap="outerHTML"
+     hx-trigger="inspector from:body{{ ', every 2s' if run and run.is_running }}">
+  <div class="dev-head">
+    <span class="eyebrow">Agent run inspector</span>
+    {% if run %}<span class="tag {{ 'accent' if run.is_running else 'green' }}">{{ 'Running' if run.is_running else 'Complete' }}</span>{% endif %}
+  </div>
+  {% if not run %}
+    <p class="muted small">No agent run recorded for this posting yet. Click <strong>Run agent</strong> and watch each step happen here.</p>
+  {% else %}
+    <div class="dev-summary">
+      {{ run.seconds }} s · {{ run.ai_requests|length }} AI request{{ '' if run.ai_requests|length == 1 else 's' }} · {{ run.tool_calls|length }} tool calls{% if run.was_retried %} · <span style="color: var(--amber)">1 retry</span>{% endif %}<br>
+      <span class="faint">{{ run.run_id }}</span>
+    </div>
+
+    <div class="dev-section">
+      <span class="eyebrow">Execution graph</span>
+      {% set nodes = run.nodes %}
+      {% macro node(item) -%}
+        <a class="node {{ item.status }}" href="#detail-{{ item.name }}">
+          <div class="node-top"><span>{{ item.label }}</span><span class="node-time">{% if item.seconds is none %}{{ item.status }}{% elif item.seconds < 0.01 %}instant{% else %}{{ '%.2f s'|format(item.seconds) }}{% endif %}</span></div>
+          {% if item.summary %}<div class="node-summary">{{ item.summary }}</div>{% endif %}
+        </a>
+      {%- endmacro %}
+      <div class="graph">
+        {{ node(nodes.route) }}
+        <div class="graph-arrow"></div>
+        {{ node(nodes.plan) }}
+        <div class="graph-arrow"></div>
+        <div class="graph-row parallel">{{ node(nodes.researcher) }}{{ node(nodes.matcher) }}{{ node(nodes.resume_advisor) }}</div>
+        <div class="graph-arrow"></div>
+        {{ node(nodes.critic) }}
+        {% if run.was_retried %}<div class="retry-note">↺ critic sent the researcher back once (max 1 retry)</div>{% endif %}
+        <div class="graph-arrow"></div>
+        {{ node(nodes.writer) }}
+        <div class="graph-arrow"></div>
+        {{ node(nodes.approval) }}
+      </div>
+    </div>
+
+    <div class="dev-section" id="detail-plan">
+      <span class="eyebrow">Planned lookups</span>
+      {% if run.planned %}
+      <ul class="trace">{% for task in run.planned %}<li><span class="what">{{ task.topic }}</span><span class="detail">"{{ task.query }}"</span><span class="cost">{{ task.reason }}</span></li>{% endfor %}</ul>
+      {% else %}<p class="faint small">{{ nodes.plan.summary or 'Waiting for the planner.' }}</p>{% endif %}
+    </div>
+
+    <div class="dev-section" id="detail-researcher">
+      <span class="eyebrow">Tool calls</span>
+      {% if run.tool_calls %}
+      <ul class="trace">{% for call in run.tool_calls %}<li class="{{ 'failed' if call.summary.startswith('failed') }}"><span class="what">{{ call.name }}</span><span class="detail">{{ call.summary }}</span><span class="cost">{{ '%.1f s'|format(call.duration_ms / 1000) if call.duration_ms is not none }}</span></li>{% endfor %}</ul>
+      {% else %}<p class="faint small">No tool calls yet.</p>{% endif %}
+      {% if run.discards %}
+      <ul class="trace" style="margin-top: 8px">{% for item in run.discards %}<li class="dropped"><span class="what">discarded</span><span class="detail">{{ item.summary }}</span><span class="cost"></span></li>{% endfor %}</ul>
+      {% endif %}
+    </div>
+
+    <div class="dev-section" id="detail-critic">
+      <span class="eyebrow">Critic checks</span>
+      {% if run.critic_rows %}
+      <ul class="trace">{% for row in run.critic_rows %}
+        <li class="{{ '' if row.is_supported else 'dropped' }}">
+          <span class="what" style="color: var({{ '--green' if row.is_supported else '--red' }})">{{ 'supported' if row.is_supported else 'dropped' }}</span>
+          <span class="detail">{{ row.text|truncate(140) }}<br><span class="faint">{{ row.domain }} · {{ row.note }}</span></span>
+          <span class="cost"></span>
+        </li>{% endfor %}</ul>
+      {% else %}<p class="faint small">{{ nodes.critic.summary or 'Nothing to check yet.' }}{% if not run.is_running and not nodes.critic.summary %} No claims were drafted.{% endif %}</p>{% endif %}
+    </div>
+
+    <div class="dev-section" id="detail-writer">
+      <span class="eyebrow">AI requests</span>
+      {% if run.ai_requests %}
+      <ul class="trace">{% for call in run.ai_requests %}<li class="{{ 'failed' if 'HTTP 200' not in call.summary }}"><span class="what">request</span><span class="detail">{{ call.summary }}</span><span class="cost">{{ '%.1f s'|format(call.duration_ms / 1000) if call.duration_ms is not none }}</span></li>{% endfor %}</ul>
+      {% else %}<p class="faint small">No AI requests in this run.</p>{% endif %}
+    </div>
+    <div id="detail-route"></div><div id="detail-matcher"></div><div id="detail-resume_advisor"></div><div id="detail-approval"></div>
+  {% endif %}
+</div>

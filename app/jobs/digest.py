@@ -60,7 +60,7 @@ def build_digest_text(
         for item in closing[:10]:
             deadline = item.deadline
             if deadline is not None and deadline.tzinfo is None:
-                deadline = deadline.replace(tzinfo=dt.timezone.utc)
+                deadline = deadline.replace(tzinfo=dt.UTC)
             when = deadline.date().isoformat() if deadline else "unknown"
             lines.append(f"- {item.title} - {item.company_name or 'unknown'} ({when})")
     else:
@@ -80,7 +80,7 @@ def run_digest(force: bool = False, now: dt.datetime | None = None) -> DigestRes
     from app.config import get_settings
 
     settings = get_settings()
-    now = now or dt.datetime.now(dt.timezone.utc)
+    now = now or dt.datetime.now(dt.UTC)
 
     with session_scope() as session:
         preferences = load_preferences(session)

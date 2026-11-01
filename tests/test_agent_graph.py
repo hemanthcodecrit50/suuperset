@@ -67,12 +67,28 @@ def test_trace_lists_the_nodes_that_ran():
     assert [entry.split(":")[0] for entry in state.trace] == [
         "route",
         "plan",
+        "researcher",
+        "matcher",
+        "resume_advisor",
         "specialists",
         "critic",
         "finalise",
         "writer",
         "approval",
     ]
+
+
+def test_every_node_records_an_event(tmp_path):
+    from app.services.events import EventLog, read_events
+
+    deps = make_deps(_tools())
+    deps.events = EventLog(tmp_path / "events.jsonl")
+    deps.run_id = "run-1"
+    run_graph(make_state(parsed_jd=PARSED_JD), deps)
+    names = [
+        event.name for event in read_events(tmp_path / "events.jsonl", run_id="run-1")
+    ]
+    assert "route" in names and "critic" in names and "writer" in names
 
 
 def test_clean_claims_cause_no_retry():

@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-import html
-import re
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlparse
 
-import markdown
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -22,23 +20,23 @@ from app.jobs.progress import PollProgress, read_progress
 from app.models import Opportunity, ResumeSuggestion
 from app.services import portfolio, preferences
 from app.services.applications import STATUSES, track
+from app.services.events import SOURCES, read_events
 from app.services.llm import LlmClient
 from app.ui.common import days_until, fmt_date, relative
 from app.web import queries
+from app.web.brief_html import brief_sources, brief_to_html
+from app.web.inspector import (
+    build_agent_run,
+    build_collector_run,
+    group_events,
+)
 from app.web.jobs import Job, JobRunner
 from app.web.superset_session import disconnect, session_status
 
 WEB_DIR = Path(__file__).parent
 JOB_LOG_DIR = Path(".cache/web-jobs")
-BRIEF_SECTION_STYLES = {
-    "Verdict": "verdict",
-    "Key facts": "keyfacts",
-    "Risk flags": "risk",
-    "Company snapshot": "company",
-    "Likely rounds and prep": "prep",
-    "Resume advice": "resume",
-    "Unknown": "unknown",
-}
+DEV_MODE_COOKIE = "dev_mode"
+ACTIVITY_LIMIT = 300
 LIST_FIELDS = ("skills", "technologies", "interests", "locations", "companies")
 MAX_LIST_ITEMS = 50
 
@@ -59,6 +57,8 @@ def create_app(
     app.state.session_factory = session_factory
     app.state.settings = settings or get_settings()
     app.state.jobs = job_runner or JobRunner(JOB_LOG_DIR)
+    # Which event-log run each posting's latest agent job writes to
+    app.state.agent_runs = {}
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
     app.middleware("http")(_reject_cross_site_posts)
     _register_routes(app, _templates())
@@ -69,31 +69,11 @@ def _templates() -> Jinja2Templates:
     templates = Jinja2Templates(directory=WEB_DIR / "templates")
     templates.env.filters["relative"] = relative
     templates.env.filters["date"] = fmt_date
-    templates.env.filters["markdown"] = _markdown_to_html
+    templates.env.filters["markdown"] = brief_to_html
     templates.env.filters["pretty"] = lambda value: str(value or "").replace("_", " ")
     templates.env.filters["initials"] = _initials
     templates.env.filters["hue"] = _hue
     return templates
-
-
-def _markdown_to_html(text: str) -> str:
-    # Briefs quote scraped web text, so raw HTML in them must never render
-    body = markdown.markdown(html.escape(text or "", quote=False), extensions=["extra"])
-    return _wrap_brief_sections(body)
-
-
-def _wrap_brief_sections(body: str) -> str:
-    sections: list[str] = []
-    for part in re.split(r"(?=<h3>)", body):
-        heading = re.match(r"<h3>(.*?)</h3>", part)
-        if heading is None:
-            sections.append(
-                f'<div class="brief-intro">{part}</div>' if part.strip() else ""
-            )
-            continue
-        style = BRIEF_SECTION_STYLES.get(html.unescape(heading.group(1)), "")
-        sections.append(f'<section class="brief-section {style}">{part}</section>')
-    return "".join(sections)
 
 
 def _initials(name: str | None) -> str:
@@ -141,7 +121,41 @@ def _register_routes(app: FastAPI, templates: Jinja2Templates) -> None:
             settings.storage_state_path, runs[0] if runs else None
         ).state
         context["llm"] = LlmClient(settings=settings)
+        context["dev_mode"] = is_dev_mode(request)
+        context["is_busy"] = any(
+            job.state == "running" for job in request.app.state.jobs.jobs.values()
+        )
         return templates.TemplateResponse(request, f"{name}.html", context)
+
+    def is_dev_mode(request: Request) -> bool:
+        return request.cookies.get(DEV_MODE_COOKIE) == "1"
+
+    def events_path(request: Request) -> Path:
+        return Path(request.app.state.settings.events_file)
+
+    def agent_run_view(request: Request, opportunity_id: int, brief: Any):
+        job = request.app.state.jobs.get(f"agent-{opportunity_id}")
+        is_running = job is not None and job.state == "running"
+        run_id = request.app.state.agent_runs.get(opportunity_id) if job else None
+        if run_id is None and brief is not None:
+            run_id = brief.content.get("run_id")
+        if run_id is None:
+            return None
+        events = list(reversed(read_events(events_path(request), run_id=run_id)))
+        is_latest_brief = brief is not None and brief.content.get("run_id") == run_id
+        content = brief.content if is_latest_brief else None
+        return build_agent_run(run_id, events, content, is_running)
+
+    def collector_view(request: Request):
+        latest = read_events(events_path(request), source="collector", limit=1)
+        if not latest or latest[0].run_id is None:
+            return None
+        run_id = latest[0].run_id
+        events = list(reversed(read_events(events_path(request), run_id=run_id)))
+        job = request.app.state.jobs.get("poll")
+        return build_collector_run(
+            run_id, events, job is not None and job.state == "running"
+        )
 
     def job_panel(request: Request, job: Job | None, name: str) -> HTMLResponse:
         context = {
@@ -181,12 +195,18 @@ def _register_routes(app: FastAPI, templates: Jinja2Templates) -> None:
     @app.get("/postings/{opportunity_id}", response_class=HTMLResponse)
     def posting(request: Request, session: DbSession, opportunity_id: int):
         record = _opportunity_or_404(session, opportunity_id)
+        brief = queries.posting_brief(session, opportunity_id)
         return page(
             request,
             session,
             "posting",
             record=record,
-            brief=queries.posting_brief(session, opportunity_id),
+            brief=brief,
+            sources=brief_sources(brief.content.get("markdown", "")) if brief else [],
+            profile=preferences.load_preferences(session).matching,
+            run=agent_run_view(request, opportunity_id, brief)
+            if is_dev_mode(request)
+            else None,
             status=queries.posting_status(session, record),
             days_left=days_until(record.deadline),
             fit_score=record.relevance_score
@@ -214,10 +234,58 @@ def _register_routes(app: FastAPI, templates: Jinja2Templates) -> None:
     def run_agent(request: Request, session: DbSession, opportunity_id: int):
         _opportunity_or_404(session, opportunity_id)
         name = f"agent-{opportunity_id}"
-        job = request.app.state.jobs.start(
-            name, ["agent", "run", str(opportunity_id), "--fresh"]
+        existing = request.app.state.jobs.get(name)
+        if existing is None or existing.state != "running":
+            run_id = f"agent-{opportunity_id}-{int(time.time())}"
+            request.app.state.agent_runs[opportunity_id] = run_id
+            arguments = [
+                "agent",
+                "run",
+                str(opportunity_id),
+                "--fresh",
+                "--run-id",
+                run_id,
+            ]
+            existing = request.app.state.jobs.start(name, arguments)
+        return job_panel(request, existing, name)
+
+    @app.get("/postings/{opportunity_id}/inspector", response_class=HTMLResponse)
+    def inspector(request: Request, session: DbSession, opportunity_id: int):
+        brief = queries.posting_brief(session, opportunity_id)
+        run = agent_run_view(request, opportunity_id, brief)
+        context = {"run": run, "record": _opportunity_or_404(session, opportunity_id)}
+        return templates.TemplateResponse(request, "_inspector.html", context)
+
+    @app.post("/dev-mode")
+    def toggle_dev_mode(request: Request, next: Annotated[str, Form()] = "/"):
+        # Only redirect inside this app
+        target = next if next.startswith("/") and not next.startswith("//") else "/"
+        response = RedirectResponse(target, status_code=303)
+        response.set_cookie(
+            DEV_MODE_COOKIE, "0" if is_dev_mode(request) else "1", samesite="lax"
         )
-        return job_panel(request, job, name)
+        return response
+
+    @app.get("/activity", response_class=HTMLResponse)
+    def activity(request: Request, session: DbSession, source: str = ""):
+        return page(request, session, "activity", **activity_context(request, source))
+
+    @app.get("/activity/stream", response_class=HTMLResponse)
+    def activity_stream(request: Request, source: str = ""):
+        context = activity_context(request, source)
+        return templates.TemplateResponse(request, "_activity_stream.html", context)
+
+    def activity_context(request: Request, source: str) -> dict[str, Any]:
+        source = source if source in SOURCES else ""
+        events = read_events(
+            events_path(request), limit=ACTIVITY_LIMIT, source=source or None
+        )
+        return {"groups": group_events(events), "source": source, "sources": SOURCES}
+
+    @app.get("/collector", response_class=HTMLResponse)
+    def collector(request: Request):
+        context = {"collector": collector_view(request)}
+        return templates.TemplateResponse(request, "_collector.html", context)
 
     @app.get("/jobs/{name}", response_class=HTMLResponse)
     def job_status(request: Request, name: str):
@@ -272,6 +340,7 @@ def _register_routes(app: FastAPI, templates: Jinja2Templates) -> None:
             runs=runs,
             login_job=request.app.state.jobs.get("login"),
             poll_job=request.app.state.jobs.get("poll"),
+            collector=collector_view(request) if is_dev_mode(request) else None,
             progress=poll_progress(request, request.app.state.jobs.get("poll")),
         )
 

@@ -178,6 +178,12 @@ SQLite or local PostgreSQL, free search APIs, and optional local Ollama for the
 model features (resume bullets, report polishing). See
 [`docs/ai_setup.md`](docs/ai_setup.md).
 
+**Dev mode** (switch in the top bar) shows how everything works, for demos:
+the posting page gains a live agent inspector (each node, tool call, AI
+request and critic check), Profile shows the collector pipeline stage by stage,
+and an **Activity** page streams every event. All of it comes from real events
+in `.cache/events.jsonl`, never sample data.
+
 Telegram and email still work but are optional and off unless configured. The
 older Streamlit dashboard (`streamlit run app/dashboard.py`) is kept for now.
 

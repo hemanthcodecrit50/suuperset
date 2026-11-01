@@ -156,7 +156,12 @@ def test_tracked_application_appears_on_the_applications_page(client, posting_id
 
 def test_run_agent_starts_the_agent_command(client, jobs, posting_id):
     client.post(f"/postings/{posting_id}/agent")
-    assert jobs.started == [["agent", "run", str(posting_id), "--fresh"]]
+    assert jobs.started[0][:4] == ["agent", "run", str(posting_id), "--fresh"]
+
+
+def test_agent_run_gets_a_run_id_for_dev_mode(client, jobs, posting_id):
+    client.post(f"/postings/{posting_id}/agent")
+    assert jobs.started[0][4] == "--run-id"
 
 
 def test_pending_suggestion_is_listed_for_approval(client, factory, posting_id):
@@ -166,7 +171,7 @@ def test_pending_suggestion_is_listed_for_approval(client, factory, posting_id):
 
 def test_nav_badge_counts_pending_suggestions(client, factory, posting_id):
     _add_suggestion(factory, posting_id)
-    assert '<span class="badge">1</span>' in client.get("/").text
+    assert '<span class="count">1</span>' in client.get("/").text
 
 
 def test_approving_marks_the_suggestion_approved(client, factory, posting_id):
@@ -315,7 +320,7 @@ def test_postings_from_the_first_poll_are_not_new(client, factory, posting_id):
     with factory() as session:
         session.add(PollRun(status="success", finished_at=dt.datetime.now(dt.UTC)))
         session.commit()
-    assert 'class="new-tag"' not in client.get("/").text
+    assert "new-flag" not in client.get("/").text
 
 
 def test_fit_is_hidden_until_the_profile_is_filled_in(client, factory, posting_id):
@@ -334,3 +339,80 @@ def test_placeholder_location_is_hidden():
 def test_posting_links_to_superset_by_job_id(client, posting_id):
     page = client.get(f"/postings/{posting_id}").text
     assert "jobprofiles?currentJobId=job-1" in page
+
+
+def test_dev_mode_is_off_by_default(client, posting_id):
+    assert 'aria-checked="false"' in client.get("/").text
+
+
+def test_dev_mode_toggle_sets_a_cookie_and_returns_to_the_page(client):
+    response = client.post(
+        "/dev-mode", data={"next": "/applications"}, follow_redirects=False
+    )
+    assert response.headers["location"] == "/applications"
+    assert "dev_mode=1" in response.headers["set-cookie"]
+
+
+def test_dev_mode_toggle_never_redirects_off_site(client):
+    response = client.post(
+        "/dev-mode", data={"next": "//evil.example"}, follow_redirects=False
+    )
+    assert response.headers["location"] == "/"
+
+
+def test_dev_mode_shows_the_activity_link(client, posting_id):
+    client.cookies.set("dev_mode", "1")
+    assert 'href="/activity"' in client.get("/").text
+
+
+def test_dev_mode_shows_the_inspector_on_a_posting(client, posting_id):
+    client.cookies.set("dev_mode", "1")
+    assert "Agent run inspector" in client.get(f"/postings/{posting_id}").text
+
+
+def test_inspector_shows_recorded_tool_calls(factory, tmp_path, posting_id):
+    from app.services.events import EventLog
+
+    events_path = tmp_path / "events.jsonl"
+    log = EventLog(events_path)
+    log.record("agent", "route", "FULL · New posting", run_id="agent-1-1")
+    log.record("tool", "web_search", '"Zensar" · 3 results', run_id="agent-1-1")
+    with factory() as session:
+        session.add(
+            ResearchReport(
+                opportunity_id=posting_id,
+                kind="agent_brief",
+                content={"markdown": "x", "run_id": "agent-1-1"},
+                sources=[],
+            )
+        )
+        session.commit()
+    settings = make_settings(events_file=str(events_path))
+    client = TestClient(create_app(factory, settings, FakeJobRunner()))
+    page = client.get(f"/postings/{posting_id}/inspector").text
+    assert "Zensar&#34; · 3 results" in page and "FULL · New posting" in page
+
+
+def test_activity_page_lists_events(factory, tmp_path):
+    from app.services.events import EventLog
+
+    events_path = tmp_path / "events.jsonl"
+    EventLog(events_path).record(
+        "collector", "stage", "Reading announcements", run_id="poll-1"
+    )
+    settings = make_settings(events_file=str(events_path))
+    client = TestClient(create_app(factory, settings, FakeJobRunner()))
+    assert "Reading announcements" in client.get("/activity").text
+
+
+def test_activity_can_be_filtered_by_source(factory, tmp_path):
+    from app.services.events import EventLog
+
+    events_path = tmp_path / "events.jsonl"
+    log = EventLog(events_path)
+    log.record("collector", "stage", "Reading announcements")
+    log.record("ai", "request", "Claims request")
+    settings = make_settings(events_file=str(events_path))
+    client = TestClient(create_app(factory, settings, FakeJobRunner()))
+    page = client.get("/activity/stream?source=ai").text
+    assert "Claims request" in page and "Reading announcements" not in page

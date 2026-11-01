@@ -1,53 +1,93 @@
 {% extends "base.html" %}
-{% from "_macros.html" import avatar, deadline_chip, fit_meter, status_select %}
+{% from "_macros.html" import mark, deadline, fit, status_select %}
 {% block title %}{{ record.title }} · Placement Copilot{% endblock %}
 {% block content %}
-<a class="back" href="/">← Back to inbox</a>
+<a class="back" href="/">← Inbox</a>
 
-<section class="hero">
-  <div class="hero-top">
-    {{ avatar(record.company_name, 'large') }}
-    <div class="hero-text">
+<section class="posting-head">
+  <div class="posting-title">
+    {{ mark(record.company_name, 'large') }}
+    <div class="text">
       <h1>{{ record.title }}</h1>
-      <div class="sub">{{ record.company_name or 'Unknown company' }}{% if location %} · {{ location }}{% endif %}</div>
+      <p class="role-sub">{{ record.company_name or 'Unknown company' }}{% if location %} · {{ location }}{% endif %}</p>
     </div>
     <div class="actions">
       {{ status_select(record.id, status, statuses) }}
-      <a class="button ghost" href="{{ portal_url }}" target="_blank" rel="noopener">Open in Superset ↗</a>
+      <a class="button secondary" href="{{ portal_url }}" target="_blank" rel="noopener">Open in Superset ↗</a>
     </div>
   </div>
   <dl class="facts">
-    <div><dt>Fit</dt><dd>{% if fit_score is none and record.eligible is not false %}<a href="/profile" class="small">Fill in your profile</a>{% else %}{{ fit_meter(fit_score, record.eligible) }}{% endif %}</dd></div>
-    <div><dt>Deadline</dt><dd>{{ deadline_chip(days_left, record.deadline) }}</dd></div>
+    <div><dt>Fit</dt><dd>{% if fit_score is none and record.eligible is not false %}<a href="/profile">Add your profile</a>{% else %}{{ fit(fit_score, record.eligible) }}{% endif %}</dd></div>
+    <div><dt>Deadline</dt><dd>{% if record.deadline %}{{ record.deadline.strftime('%d %b') }} · {% endif %}{{ deadline(days_left, record.deadline) }}</dd></div>
     <div><dt>Pay</dt><dd>{{ record.compensation or 'Not stated' }}</dd></div>
     <div><dt>Type</dt><dd>{{ record.work_type or '—' }}</dd></div>
   </dl>
 </section>
 
-<section class="panel">
-  <div class="panel-head">
-    <div>
-      <h2>Agent brief</h2>
-      <p class="muted small">
-        {% if brief %}Generated {{ brief.generated_at|relative }}. Company facts link to the source the critic checked.
-        {% else %}Researches the company, checks every claim against its source, scores your fit and suggests resume changes.{% endif %}
-      </p>
-    </div>
-    <button class="button" hx-post="/postings/{{ record.id }}/agent" hx-target="#job-slot" hx-swap="innerHTML">
-      <svg viewBox="0 0 24 24"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.4-6.4-2.1 2.1M7.7 16.3l-2.1 2.1m12.8 0-2.1-2.1M7.7 7.7 5.6 5.6"/></svg>
-      {{ 'Re-run agent' if brief else 'Run agent' }}
-    </button>
-  </div>
-  <div id="job-slot">{% if job %}{% with job_name = 'agent-' ~ record.id %}{% include "_job.html" %}{% endwith %}{% endif %}</div>
-  {% if brief %}
-    <article class="brief">{{ brief.content.markdown|markdown|safe }}</article>
-  {% endif %}
-</section>
+<div class="split {{ 'wide-side' if dev_mode }}">
+  <div>
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Agent brief</h2>
+          <p class="muted small">
+            {% if brief %}Generated {{ brief.generated_at|relative }}. Every company fact is linked to the source the critic checked.
+            {% else %}Researches the company, checks each claim against its source, scores your fit and suggests resume changes.{% endif %}
+          </p>
+        </div>
+        <button class="button {{ 'secondary' if brief }}" hx-post="/postings/{{ record.id }}/agent" hx-target="#job-slot" hx-swap="innerHTML"
+                hx-on::after-request="htmx.trigger(document.body, 'inspector')">
+          {{ 'Re-run agent' if brief else 'Run agent' }}
+        </button>
+      </div>
+      <div id="job-slot">{% if job %}{% with job_name = 'agent-' ~ record.id %}{% include "_job.html" %}{% endwith %}{% endif %}</div>
+      {% if brief %}
+        <article class="memo">{{ brief.content.markdown|markdown|safe }}</article>
+        {% if sources %}
+        <div class="memo-footnotes">
+          <span class="eyebrow">Sources checked by the critic</span>
+          <ol>{% for source in sources %}<li><a href="{{ source.url }}" target="_blank" rel="noopener">{{ source.domain }}</a> · <span class="faint">{{ source.url }}</span></li>{% endfor %}</ol>
+        </div>
+        {% endif %}
+      {% else %}
+        <div class="empty"><strong>No brief yet.</strong>Run the agent to get a verdict, key facts, risks and resume advice.</div>
+      {% endif %}
 
-{% if record.description %}
-<details class="panel">
-  <summary>Job description</summary>
-  <div class="jd">{{ record.description }}</div>
-</details>
-{% endif %}
+      {% if record.description %}
+      <details class="jd">
+        <summary>Job description</summary>
+        <div class="jd-text">{{ record.description }}</div>
+      </details>
+      {% endif %}
+    </section>
+  </div>
+
+  <aside class="stack">
+    {% if dev_mode %}
+      {% include "_inspector.html" %}
+    {% else %}
+      <section class="panel">
+        <h2>Your profile</h2>
+        <p class="muted small" style="margin: 4px 0 12px">Fit and eligibility use these. Nothing here is sent to Superset.</p>
+        <ul class="kv">
+          {% for label, key in [('Degree', 'degree'), ('CGPA', 'cgpa'), ('Graduation year', 'graduation_year')] %}
+          <li><span class="key">{{ label }}</span>{% if profile.get(key) %}<span class="value">{{ profile.get(key) }}</span>{% else %}<span class="value unset">Not set</span>{% endif %}</li>
+          {% endfor %}
+          <li><span class="key">Skills</span>{% if profile.get('skills') %}<span class="value">{{ profile.get('skills')|length }} listed</span>{% else %}<span class="value unset">Not set</span>{% endif %}</li>
+        </ul>
+        <a class="button secondary" href="/profile" style="width: 100%; margin-top: 16px">Edit profile</a>
+      </section>
+      <section class="panel">
+        <h2>How this brief is made</h2>
+        <ol class="muted small" style="margin: 10px 0 0; padding-left: 18px; line-height: 1.7">
+          <li>Reads the job description from Superset.</li>
+          <li>Searches free public sources about the company.</li>
+          <li>A critic checks every claim against its source and drops what it can't verify.</li>
+          <li>You decide. Nothing is ever sent to Superset.</li>
+        </ol>
+        <p class="faint small" style="margin-top: 12px">Turn on Dev mode to watch each step.</p>
+      </section>
+    {% endif %}
+  </aside>
+</div>
 {% endblock %}

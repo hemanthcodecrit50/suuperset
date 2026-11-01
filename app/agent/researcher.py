@@ -77,11 +77,17 @@ def _search_one(task: Task, company: str, deps: AgentDeps) -> list[Evidence]:
     if not response["ok"]:
         logger.info("Search for %r failed: %s", task.query, response["error"])
         return []
-    return [
-        _to_evidence(item, task.topic)
-        for item in response["result"]["results"]
-        if _mentions_company(item, company)
-    ]
+    results = response["result"]["results"]
+    kept = [item for item in results if _mentions_company(item, company)]
+    if len(kept) < len(results):
+        deps.record(
+            "discard",
+            f'{len(results) - len(kept)} results for "{task.query}" were about other entities',
+            payload={
+                "dropped": [item["source_url"] for item in results if item not in kept]
+            },
+        )
+    return [_to_evidence(item, task.topic) for item in kept]
 
 
 def _mentions_company(item: dict, company: str) -> bool:

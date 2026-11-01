@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 FIT_COVERED_FIELDS = frozenset({"eligibility", "degree", "min_cgpa", "graduation_year"})
 
 Node = Callable[[AgentState, AgentDeps], AgentState]
+SPECIALISTS: tuple[tuple[str, Node], ...] = (
+    ("researcher", research),
+    ("matcher", match),
+    ("resume_advisor", advise_resume),
+)
 
 
 def run_graph(state: AgentState, deps: AgentDeps) -> AgentState:
@@ -66,11 +71,13 @@ def _run_specialists(state: AgentState, deps: AgentDeps) -> AgentState:
     """Run the researcher, matcher and resume advisor side by side."""
     with ThreadPoolExecutor(max_workers=3) as pool:
         futures = [
-            pool.submit(_run_on_copy, node, state, deps)
-            for node in (research, match, advise_resume)
+            pool.submit(_timed, name, node, _private_copy(state), deps)
+            for name, node in SPECIALISTS
         ]
         results = [future.result() for future in futures]
     researched, matched, advised = results
+    for specialist in results:
+        state.trace.extend(specialist.trace)
     state.evidence = researched.evidence
     state.claims = researched.claims
     state.fit = matched.fit
@@ -79,9 +86,9 @@ def _run_specialists(state: AgentState, deps: AgentDeps) -> AgentState:
     return state
 
 
-def _run_on_copy(node: Node, state: AgentState, deps: AgentDeps) -> AgentState:
+def _private_copy(state: AgentState) -> AgentState:
     # Each specialist writes its own fields, so give it its own copy of the state
-    private = AgentState(
+    return AgentState(
         opportunity=state.opportunity,
         change_type=state.change_type,
         changes=state.changes,
@@ -94,7 +101,6 @@ def _run_on_copy(node: Node, state: AgentState, deps: AgentDeps) -> AgentState:
         retry_count=state.retry_count,
         retry_topics=list(state.retry_topics),
     )
-    return node(private, deps)
 
 
 def _retry_research(state: AgentState, deps: AgentDeps) -> AgentState:
@@ -126,5 +132,44 @@ def _unknown_jd_fields(state: AgentState) -> list[str]:
 def _timed(name: str, node: Node, state: AgentState, deps: AgentDeps) -> AgentState:
     started = time.monotonic()
     state = node(state, deps)
-    state.trace.append(f"{name}:{time.monotonic() - started:.2f}s")
+    seconds = time.monotonic() - started
+    state.trace.append(f"{name}:{seconds:.2f}s")
+    deps.record(name, describe_node(name, state), duration_ms=round(seconds * 1000))
     return state
+
+
+def describe_node(name: str, state: AgentState) -> str:
+    """One line saying what a node decided, for the Dev mode timeline."""
+    if name == "route":
+        return f"{state.route.value.upper()} · {state.route_reason}"
+    if name == "plan":
+        topics = ", ".join(task.topic for task in state.tasks) or "none"
+        return f"{len(state.tasks)} lookups: {topics}"
+    if name in ("researcher", "research_retry"):
+        return (
+            f"{len(state.evidence)} evidence items · {len(state.claims)} claims drafted"
+        )
+    if name == "matcher":
+        return (
+            f"fit {state.fit['score']} · {state.fit['eligibility']}"
+            if state.fit
+            else "no fit"
+        )
+    if name == "resume_advisor":
+        advice = state.resume_advice
+        if not advice:
+            return "nothing to map"
+        return f"{len(advice['lead_with'])} projects to lead with · {len(advice['gaps'])} gaps"
+    if name in ("critic", "critic_retry") and state.verdict is not None:
+        verdict = state.verdict
+        supported = verdict.checked_count - verdict.unsupported_count
+        return f"{supported}/{verdict.checked_count} claims supported"
+    if name == "finalise":
+        return (
+            f"{len(state.claims)} verified claims kept · {len(state.unknowns)} unknowns"
+        )
+    if name == "writer":
+        return "brief written"
+    if name == "approval":
+        return f"{state.pending_approvals} resume bullets waiting for approval"
+    return "done"

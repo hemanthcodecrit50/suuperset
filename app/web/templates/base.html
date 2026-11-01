@@ -4,32 +4,62 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Placement Copilot{% endblock %}</title>
+  <link rel="preload" href="/static/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <header class="topbar">
+  <header class="topbar {{ 'dev' if dev_mode }}">
     <div class="topbar-inner">
-      <a class="brand" href="/"><span class="brand-mark">PC</span><span>Placement Copilot</span></a>
-      <nav>
-        <a href="/" class="{{ 'active' if active_page in ('inbox', 'posting') }}">
-          <svg viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/></svg>Inbox</a>
+      <a class="brand" href="/">Placement<br>Copilot</a>
+      <nav class="nav" aria-label="Main">
+        <a href="/" class="{{ 'active' if active_page in ('inbox', 'posting') }}">Inbox</a>
         <a href="/approvals" class="{{ 'active' if active_page == 'approvals' }}">
-          <svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Approvals{% if pending_count %}<span class="badge">{{ pending_count }}</span>{% endif %}</a>
-        <a href="/applications" class="{{ 'active' if active_page == 'applications' }}">
-          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>Applications</a>
-        <a href="/profile" class="{{ 'active' if active_page == 'profile' }}">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Profile</a>
+          Approvals{% if pending_count %}<span class="count">{{ pending_count }}</span>{% endif %}
+        </a>
+        <a href="/applications" class="{{ 'active' if active_page == 'applications' }}">Applications</a>
+        <a href="/profile" class="{{ 'active' if active_page == 'profile' }}">Profile</a>
+        {% if dev_mode %}
+        <a href="/activity" class="{{ 'active' if active_page == 'activity' }}">
+          <span class="dot {{ 'live' if is_busy else '' }}"></span>Activity
+        </a>
+        {% endif %}
       </nav>
-      <a class="status-pill" href="/profile" title="Superset connection and AI usage today">
-        <span class="status-dot {{ superset_state }}"></span>
-        Superset {{ {'connected': 'connected', 'expired': 'expired', 'missing': 'not connected'}[superset_state] }}
-        {% if llm.configured %}{% set usage = llm.budget.usage() %}<span class="sep"></span>AI {{ usage.used }}/{{ usage.limit }}{% endif %}
-      </a>
+      <div class="topbar-status">
+        <a href="/profile" title="Superset connection">
+          <span class="dot {{ {'connected': 'good', 'expired': 'warn'}.get(superset_state, '') }}"></span>Superset {{ {'connected': 'connected', 'expired': 'expired', 'missing': 'not connected'}[superset_state] }}
+        </a>
+        {% if llm.configured %}{% set usage = llm.budget.usage() %}
+        <a href="/profile" title="AI requests used today">AI {{ usage.used }}/{{ usage.limit }}</a>
+        {% endif %}
+        <form method="post" action="/dev-mode" class="inline">
+          <input type="hidden" name="next" value="{{ request.url.path }}{{ '?' ~ request.url.query if request.url.query }}">
+          <button class="switch" role="switch" aria-checked="{{ 'true' if dev_mode else 'false' }}"
+                  title="Show how the agent and collector work behind the scenes">
+            <span class="switch-track"></span>Dev mode
+          </button>
+        </form>
+      </div>
     </div>
   </header>
-  <main class="container">
+  <main class="page">
     {% block content %}{% endblock %}
   </main>
+  <script>
+    // Press "/" to search; click anywhere on a row to open it
+    document.addEventListener("keydown", function (event) {
+      var search = document.querySelector("[data-search]");
+      if (event.key === "/" && search && document.activeElement.tagName !== "INPUT") {
+        event.preventDefault();
+        search.focus();
+      }
+    });
+    document.addEventListener("click", function (event) {
+      var row = event.target.closest("[data-href]");
+      if (row && !event.target.closest("a, button, select, input, form, summary")) {
+        window.location = row.dataset.href;
+      }
+    });
+  </script>
 </body>
 </html>

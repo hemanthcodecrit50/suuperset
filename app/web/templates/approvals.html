@@ -1,31 +1,48 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-head"><div><h1>Resume approvals</h1><p class="lede">The agent only rewords your real projects. Nothing is used until you approve it.</p></div></div>
-{% if not pending %}<div class="empty">No suggestions waiting for review.</div>{% endif %}
-<ul class="cards">
+<div class="page-head">
+  <div>
+    <h1>Resume approvals</h1>
+    <p class="lede">The agent only rewords your real projects. Nothing is used until you approve it.</p>
+  </div>
+</div>
+
+{% if pending %}
+<table class="table boxed">
+  <thead><tr><th>Suggested bullet</th><th class="num">Decision</th></tr></thead>
+  <tbody>
   {% for suggestion, opportunity in pending %}
-  <li class="card suggestion">
-    <div class="card-main">
-      <div class="bullet">{{ suggestion.bullet }}</div>
-      <div class="sub">
-        {% if suggestion.requirement %}For “{{ suggestion.requirement }}”{% endif %}
-        {% if opportunity %} · <a href="/postings/{{ opportunity.id }}">{{ opportunity.title }} at {{ opportunity.company_name }}</a>{% endif %}
-        {% if suggestion.evidence %} · <a href="{{ suggestion.evidence }}" target="_blank" rel="noopener">evidence</a>{% endif %}
-      </div>
-    </div>
-    <div class="actions">
-      <button class="button" hx-post="/approvals/{{ suggestion.id }}/approve" hx-target="closest li" hx-swap="outerHTML">Approve</button>
-      <button class="button ghost" hx-post="/approvals/{{ suggestion.id }}/reject" hx-target="closest li" hx-swap="outerHTML">Reject</button>
-    </div>
-  </li>
+    <tr>
+      <td>
+        <div style="font-weight: 500; font-size: 15px">{{ suggestion.bullet }}</div>
+        <div class="role-sub" style="margin-top: 6px">
+          {% if suggestion.requirement %}For {{ suggestion.requirement }}{% endif %}
+          {% if opportunity %} · <a href="/postings/{{ opportunity.id }}">{{ opportunity.title }} at {{ opportunity.company_name }}</a>{% endif %}
+          {% if suggestion.evidence %} · <a href="{{ suggestion.evidence }}" target="_blank" rel="noopener">evidence ↗</a>{% endif %}
+        </div>
+      </td>
+      <td class="num">
+        <div class="actions" style="justify-content: flex-end">
+          <button class="button small" hx-post="/approvals/{{ suggestion.id }}/approve" hx-target="closest tr" hx-swap="outerHTML">Approve</button>
+          <button class="button small secondary" hx-post="/approvals/{{ suggestion.id }}/reject" hx-target="closest tr" hx-swap="outerHTML">Reject</button>
+        </div>
+      </td>
+    </tr>
   {% endfor %}
-</ul>
+  </tbody>
+</table>
+{% else %}
+<div class="empty"><strong>Nothing waiting for review.</strong>Add real projects on your <a href="/profile#portfolio">Profile</a>; the next brief will suggest bullets from them.</div>
+{% endif %}
+
 {% if approved %}
-<h2>Approved</h2>
-<ul class="plain">
+<h2 style="margin: 40px 0 14px">Approved</h2>
+<table class="table boxed">
+  <tbody>
   {% for suggestion, opportunity in approved %}
-    <li>{{ suggestion.bullet }}{% if opportunity %} <span class="muted small">({{ opportunity.company_name }})</span>{% endif %}</li>
+    <tr><td>{{ suggestion.bullet }}</td><td class="num muted small">{{ opportunity.company_name if opportunity else '' }}</td></tr>
   {% endfor %}
-</ul>
+  </tbody>
+</table>
 {% endif %}
 {% endblock %}

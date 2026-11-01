@@ -1,0 +1,56 @@
+<div id="collector" class="dev-layer" hx-get="/collector" hx-swap="outerHTML"
+     hx-trigger="collector from:body{{ ', every 2s' if collector and collector.stages|selectattr('status', 'equalto', 'running')|list }}">
+  <div class="dev-head">
+    <span class="eyebrow">Collector pipeline · latest poll</span>
+    {% if collector %}<span class="faint mono">{{ collector.run_id }}</span>{% endif %}
+  </div>
+  {% if not collector %}
+    <p class="muted small">No poll recorded yet. Click <strong>Run poll now</strong> and watch each stage here.</p>
+  {% else %}
+    <div class="pipeline">
+      {% for stage in collector.stages %}
+      <div class="stage {{ stage.status }}">
+        <div class="stage-title">{{ loop.index }}. {{ stage.title }}</div>
+        <div class="stage-meta">{{ stage.status }}{% if stage.seconds is not none %} · {{ stage.seconds }} s{% endif %}</div>
+        {% if stage.detail %}<div class="stage-meta">{{ stage.detail }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="split" style="margin-top: 22px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)">
+      <div>
+        <span class="eyebrow" style="display: block; margin-bottom: 10px">Change detection</span>
+        {% set new_count = collector.changes|selectattr('name', 'equalto', 'new')|list|length %}
+        {% set changed_count = collector.changes|selectattr('name', 'equalto', 'changed')|list|length %}
+        <div class="stat-row">
+          <div class="stat"><div class="stat-label">New</div><div class="stat-num">{{ new_count }}</div></div>
+          <div class="stat"><div class="stat-label">Changed</div><div class="stat-num">{{ changed_count }}</div></div>
+          <div class="stat"><div class="stat-label">Hash compared</div><div class="stat-num">SHA-256</div></div>
+        </div>
+        {% if collector.changes %}
+        <ul class="trace" style="margin-top: 10px">
+          {% for change in collector.changes[:12] %}
+          <li>
+            <span class="what">{{ change.name }}</span>
+            <span class="detail">{{ change.summary }}
+              {% for field, pair in change.payload.get('changes', {}).items() %}<br><span class="faint">{{ field }}:</span> <span class="diff-old">{{ pair.old|truncate(40) }}</span> → <span class="diff-new">{{ pair.new|truncate(40) }}</span>{% endfor %}
+            </span>
+            <span class="cost">{{ change.payload.get('content_hash', '') }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}<p class="faint small" style="margin-top: 10px">No new or changed postings in this poll.</p>{% endif %}
+      </div>
+      <div>
+        <span class="eyebrow" style="display: block; margin-bottom: 10px">Guards</span>
+        <ul class="trace">
+          <li><span class="what">this poll</span><span class="detail">{{ collector.guard.summary if collector.guard else 'Waiting for the poll to finish.' }}</span><span class="cost"></span></li>
+          <li><span class="what">first run</span><span class="detail">The first poll stores the backlog with no alerts and no AI calls.</span><span class="cost"></span></li>
+          <li><span class="what">brief cap</span><span class="detail">At most 5 agent briefs per poll, about 4 AI requests each.</span><span class="cost"></span></li>
+          <li><span class="what">AI budget</span><span class="detail">Hard daily cap shared by every process; requests spaced to respect rate limits.</span><span class="cost"></span></li>
+          <li><span class="what">read only</span><span class="detail">The collector only reads from Superset; it never writes.</span><span class="cost"></span></li>
+        </ul>
+      </div>
+    </div>
+  {% endif %}
+</div>

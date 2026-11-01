@@ -179,3 +179,24 @@ def test_no_save_stores_no_resume_suggestions(session, tools):
     record = _add_opportunity(session)
     analyze_opportunity(session, record, "new", deps=deps, should_save=False)
     assert session.query(ResumeSuggestion).count() == 0
+
+
+def test_runner_logs_tool_calls_under_its_run_id(session, tmp_path):
+    from app.agent.runner import default_deps
+    from app.services.events import read_events
+
+    settings = make_settings(events_file=str(tmp_path / "events.jsonl"))
+    deps = default_deps(settings)
+    fake = FakeTools(settings, default_results=[make_search_result(FACT, WIKI)])
+    deps.call_tool = lambda name, arguments: (
+        deps.events.record("tool", name, "faked", run_id=deps.run_id)
+        or fake(name, arguments)
+    )
+    deps.llm = None
+    analyze_opportunity(
+        session, _add_opportunity(session), "new", deps=deps, run_id="run-7"
+    )
+    names = [
+        event.name for event in read_events(tmp_path / "events.jsonl", run_id="run-7")
+    ]
+    assert "run_started" in names and "web_search" in names and "run_finished" in names

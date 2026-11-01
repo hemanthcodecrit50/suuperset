@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from typing import Any
 import httpx
 
 from app.config import Settings, get_settings
+from app.services.events import EventLog
 from app.services.llm_budget import LlmBudget
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,8 @@ class LlmClient:
     """Thin OpenAI-compatible chat client."""
 
     settings: Settings
+    events: EventLog | None = None
+    run_id: str | None = None
 
     @property
     def configured(self) -> bool:
@@ -102,14 +106,33 @@ class LlmClient:
                 "Daily model request cap (%d) reached; using evidence-only output.",
                 self.settings.llm_daily_request_limit,
             )
+            self._record(body, "skipped: daily cap reached", 0)
             return None
+        started = time.monotonic()
         try:
-            return httpx.post(
+            response = httpx.post(
                 self._endpoint(), json=body, headers=self._headers(), timeout=timeout
             )
         except httpx.HTTPError as exc:
             logger.warning("LLM request failed: %s", str(exc)[:200])
+            self._record(body, "network error", time.monotonic() - started)
             return None
+        self._record(body, f"HTTP {response.status_code}", time.monotonic() - started)
+        return response
+
+    def _record(self, body: dict[str, Any], outcome: str, seconds: float) -> None:
+        if self.events is None:
+            return
+        purpose = body["messages"][0]["content"].strip().splitlines()[0][:80]
+        usage = self.budget.usage()
+        self.events.record(
+            "ai",
+            "request",
+            f"{purpose} · {outcome} · {usage.used}/{usage.limit} today",
+            run_id=self.run_id,
+            duration_ms=round(seconds * 1000),
+            payload={"model": self.settings.research_model, "outcome": outcome},
+        )
 
 
 def _content(response: httpx.Response | None) -> str | None:

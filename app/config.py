@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     heartbeat_max_age_hours: int = 3
     # Live poll progress for the web app's progress bar
     poll_progress_file: str = ".cache/poll_progress.json"
+    # What the agent and collector did, shown in Dev mode
+    events_file: str = ".cache/events.jsonl"
 
     # --- Telegram --------------------------------------------------------
     telegram_bot_token: str = ""

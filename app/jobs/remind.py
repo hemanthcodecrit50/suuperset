@@ -42,7 +42,7 @@ def run_reminders(now: dt.datetime | None = None, max_days: int = 30) -> Reminde
     from app.config import get_settings
 
     settings = get_settings()
-    now = now or dt.datetime.now(dt.timezone.utc)
+    now = now or dt.datetime.now(dt.UTC)
     result = ReminderResult()
 
     with session_scope() as session:
@@ -64,7 +64,7 @@ def run_reminders(now: dt.datetime | None = None, max_days: int = 30) -> Reminde
             result.checked += 1
             deadline = opportunity.deadline
             if deadline.tzinfo is None:
-                deadline = deadline.replace(tzinfo=dt.timezone.utc)
+                deadline = deadline.replace(tzinfo=dt.UTC)
             days_left = (deadline - now).days
 
             due_window = any(
@@ -74,7 +74,7 @@ def run_reminders(now: dt.datetime | None = None, max_days: int = 30) -> Reminde
             if opportunity.deadline_reminded_at is not None:
                 already = opportunity.deadline_reminded_at
                 if already.tzinfo is None:
-                    already = already.replace(tzinfo=dt.timezone.utc)
+                    already = already.replace(tzinfo=dt.UTC)
                 if already >= deadline - dt.timedelta(days=max(reminder_days or [1])):
                     continue
 

@@ -1,0 +1,30 @@
+<div id="stream" hx-get="/activity/stream?source={{ source }}" hx-trigger="every 3s [!document.querySelector('#stream details.event[open]')]" hx-swap="outerHTML">
+{% macro event_row(event) -%}
+  <details class="event">
+    <summary>
+      <span class="time">{{ event.time_label }}</span>
+      <span><span class="tag {{ {'collector': 'cyan', 'agent': 'accent', 'ai': 'amber', 'tool': ''}.get(event.source, '') }}">{{ event.source }}</span></span>
+      <span class="name">{{ event.name }}</span>
+      <span class="text">{{ event.summary }}</span>
+      <span class="cost">{{ '%.2f s'|format(event.duration_ms / 1000) if event.duration_ms is not none }}</span>
+    </summary>
+    <pre>{{ {'run_id': event.run_id, 'at': event.at, 'payload': event.payload}|tojson(indent=2) }}</pre>
+  </details>
+{%- endmacro %}
+{% if groups %}
+<div class="stream">
+  {% for group in groups %}
+    {% if group.kind == 'single' %}
+      {{ event_row(group.events[0]) }}
+    {% else %}
+      <details class="stream-group" {{ 'open' if loop.index <= 2 }}>
+        <summary><span class="tag {{ 'accent' if group.kind == 'agent' else 'cyan' }}">{{ group.kind }}</span>{{ group.title }}<span class="faint small" style="margin-left: auto; font-weight: 400">{{ group.events|length }} events · {{ group.events[-1].time_label }}</span></summary>
+        {% for event in group.events %}{{ event_row(event) }}{% endfor %}
+      </details>
+    {% endif %}
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty"><strong>Nothing has happened yet.</strong>Run a poll from Profile, or run the agent on a posting.</div>
+{% endif %}
+</div>

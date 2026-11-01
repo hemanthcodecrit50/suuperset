@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Any
 
 from app.config import Settings
+from app.services.events import EventLog
 from app.services.llm import LlmClient
 from app.services.research import Evidence
 
@@ -94,6 +95,7 @@ class AgentState:
     retry_topics: list[str] = field(default_factory=list)
     unknowns: list[str] = field(default_factory=list)
     trace: list[str] = field(default_factory=list)
+    run_id: str | None = None
     report_markdown: str = ""  # set by the writer node (week 3)
     pending_approvals: int = 0  # resume bullets awaiting student approval (week 3)
 
@@ -114,6 +116,7 @@ class AgentState:
         """JSON-safe snapshot stored with the brief."""
         return {
             "opportunity_id": self.opportunity.get("id"),
+            "run_id": self.run_id,
             "change_type": self.change_type,
             "route": self.route.value if self.route else None,
             "route_reason": self.route_reason,
@@ -143,3 +146,10 @@ class AgentDeps:
     call_tool: ToolCaller
     llm: LlmClient | None = None
     session: Any | None = None  # SQLAlchemy Session, injected by runner (week 3)
+    events: EventLog | None = None
+    run_id: str | None = None
+
+    def record(self, name: str, summary: str, **details: Any) -> None:
+        """Log an agent event for Dev mode; does nothing when no log is attached."""
+        if self.events is not None:
+            self.events.record("agent", name, summary, run_id=self.run_id, **details)

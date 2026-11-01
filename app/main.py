@@ -690,6 +690,7 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
             args.change,
             should_save=not args.no_save,
             should_reuse=not args.fresh,
+            run_id=args.run_id,
         )
     if args.json and result.state is not None:
         print(json.dumps(result.state.to_dict(), indent=2, default=str))
@@ -845,6 +846,7 @@ def build_parser() -> argparse.ArgumentParser:
     agent_run.add_argument(
         "--fresh", action="store_true", help="Ignore a stored brief and run again"
     )
+    agent_run.add_argument("--run-id", help="Event log id, so the web app can follow the run")
     agent_run.set_defaults(func=_cmd_agent_run)
 
     # --- testing --------------------------------------------------------

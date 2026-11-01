@@ -101,3 +101,47 @@ def test_interrupted_runs_are_closed(session):
     session.flush()
     poll._close_interrupted_runs(session)
     assert session.query(PollRun).one().status == "interrupted"
+
+
+def test_poll_records_a_new_posting_event(session, monkeypatch, tmp_path):
+    from app.jobs.progress import ProgressReporter
+    from app.services.events import EventLog, read_events
+
+    monkeypatch.setattr(poll, "_agent_brief", lambda *args: "")
+    monkeypatch.setattr(poll, "write_document", lambda *args: Path("x.md"))
+    log_path = tmp_path / "events.jsonl"
+    progress = ProgressReporter(None, events=EventLog(log_path), run_id="poll-1")
+    opportunity = RawOpportunity(
+        external_id="job-1", title="Backend Intern", company_name="Zensar"
+    )
+    poll._persist(
+        session,
+        make_settings(),
+        [],
+        [opportunity],
+        queue_alerts=True,
+        progress=progress,
+    )
+    names = [event.name for event in read_events(log_path, run_id="poll-1")]
+    assert "new" in names and "guards" in names
+
+
+def test_first_run_guard_says_no_ai_calls(session, tmp_path):
+    from app.jobs.progress import ProgressReporter
+    from app.services.events import EventLog, read_events
+
+    log_path = tmp_path / "events.jsonl"
+    progress = ProgressReporter(None, events=EventLog(log_path), run_id="poll-1")
+    opportunity = RawOpportunity(
+        external_id="job-1", title="Backend Intern", company_name="Zensar"
+    )
+    poll._persist(
+        session,
+        make_settings(),
+        [],
+        [opportunity],
+        queue_alerts=False,
+        progress=progress,
+    )
+    guard = [event for event in read_events(log_path) if event.name == "guards"][0]
+    assert "no AI calls" in guard.summary

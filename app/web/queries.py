@@ -23,6 +23,10 @@ from app.ui.common import as_utc, days_until
 NEW_POSTING_DAYS = 7
 CLOSING_SOON_DAYS = 3
 INBOX_LIMIT = 300
+# Portal statuses meaning the student has acted, unlike the default "yet to apply"
+PORTAL_PROGRESS_STATUSES = frozenset(
+    {"applied", "shortlisted", "assessment", "interview", "offered", "offer_accepted"}
+)
 INBOX_VIEWS = ("open", "new", "briefed", "tracked", "all")
 
 
@@ -39,6 +43,7 @@ class PostingRow:
     status: str | None
     is_new: bool
     has_brief: bool
+    is_tracked: bool
 
 
 def inbox_rows(session: Session, view: str, query: str) -> list[PostingRow]:
@@ -70,6 +75,7 @@ class InboxStats:
     closing_soon: int
     briefs_ready: int
     pending_approvals: int
+    view_counts: dict[str, int]
 
 
 def inbox_stats(session: Session) -> InboxStats:
@@ -83,6 +89,9 @@ def inbox_stats(session: Session) -> InboxStats:
         ),
         briefs_ready=sum(row.has_brief for row in rows),
         pending_approvals=pending_approval_count(session),
+        view_counts={
+            view: sum(_matches_view(row, view) for row in rows) for view in INBOX_VIEWS
+        },
     )
 
 
@@ -171,6 +180,8 @@ def _posting_row(record: Opportunity, context: _RowContext) -> PostingRow:
         status=context.statuses.get(record.id) or _portal_status(record),
         is_new=_is_new(record.first_seen_at, context.backlog_loaded_at),
         has_brief=record.id in context.briefed_ids,
+        is_tracked=record.id in context.statuses
+        or _portal_status(record) in PORTAL_PROGRESS_STATUSES,
     )
 
 
@@ -207,7 +218,7 @@ def _matches_view(row: PostingRow, view: str) -> bool:
     if view == "open":
         return row.days_left is None or row.days_left >= 0
     if view == "tracked":
-        return row.status is not None
+        return row.is_tracked
     return True
 
 

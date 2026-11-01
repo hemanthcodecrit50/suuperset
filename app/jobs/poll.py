@@ -20,6 +20,7 @@ import fcntl
 import logging
 import os
 import sys
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -45,6 +46,7 @@ from app.db import session_scope
 from app.jobs.progress import ProgressReporter
 from app.models import PollRun, Source
 from app.services.alerts import CHANNEL_EMAIL, CHANNEL_TELEGRAM
+from app.services.events import EventLog
 
 logger = logging.getLogger(__name__)
 
@@ -444,6 +446,8 @@ def _persist(
         changes: dict = {}
         if change == CHANGED:
             changes = _field_changes(session, record)
+        if change in (NEW, CHANGED) and queue_alerts:
+            _record_change(progress, record, change, changes)
 
         if change in (NEW, CHANGED) and not queue_alerts:
             # The seeding run only stores the backlog: no documents, no model calls
@@ -505,6 +509,11 @@ def _persist(
         result.details["agent_briefs"] = result.items_briefed
     if seeded:
         result.details["seeded_without_documents"] = seeded
+    progress.record(
+        "guards",
+        _guard_summary(result, seeded, suppressed, settings),
+        payload={**result.details, "alerts_queued": result.alerts_queued},
+    )
     if result.items_filtered:
         result.details["below_relevance_threshold"] = result.items_filtered
         logger.info(
@@ -513,6 +522,32 @@ def _persist(
             preferences.min_alert_score,
         )
     return result
+
+
+def _record_change(progress: ProgressReporter, record, change: str, changes: dict) -> None:
+    fields = ", ".join(changes) if changes else "new posting"
+    progress.record(
+        change,
+        f"{record.company_name or 'Unknown company'} · {record.title} · {fields}",
+        payload={
+            "opportunity_id": record.id,
+            "content_hash": (record.content_hash or "")[:12],
+            "changes": {
+                name: {"old": str(pair.get("old")), "new": str(pair.get("new"))}
+                for name, pair in changes.items()
+            },
+        },
+    )
+
+
+def _guard_summary(result: PollResult, seeded: int, suppressed: int, settings: Settings) -> str:
+    if seeded:
+        return f"First run: {seeded} backlog items stored with no alerts and no AI calls"
+    return (
+        f"{result.alerts_queued} alerts queued (cap {settings.max_alerts_per_run}) · "
+        f"{result.items_briefed} briefs (cap {settings.agent_max_briefs_per_run}) · "
+        f"{suppressed} suppressed"
+    )
 
 
 def _agent_brief(session, settings: Settings, record, change: str, changes: dict) -> str:
@@ -709,7 +744,12 @@ async def run_poll(settings: Settings | None = None) -> PollResult:
     settings = settings or get_settings()
     ensure_source(settings)
     with file_lock(settings.poll_lock_file):
-        return await _run_once(settings, ProgressReporter(Path(settings.poll_progress_file)))
+        progress = ProgressReporter(
+            Path(settings.poll_progress_file),
+            events=EventLog(Path(settings.events_file)),
+            run_id=f"poll-{int(time.time())}",
+        )
+        return await _run_once(settings, progress)
 
 
 def _summary(result: PollResult) -> str:

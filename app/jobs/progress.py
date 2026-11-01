@@ -7,6 +7,8 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from app.services.events import EventLog
+
 # Each stage owns a slice of the bar: (label, start percent, end percent)
 STAGES: dict[str, tuple[str, int, int]] = {
     "connect": ("Opening Superset with your saved session", 0, 10),
@@ -30,12 +32,37 @@ class PollProgress:
 class ProgressReporter:
     """Writes the current poll stage; does nothing when no file is configured."""
 
-    def __init__(self, path: Path | None) -> None:
+    def __init__(
+        self,
+        path: Path | None,
+        events: EventLog | None = None,
+        run_id: str | None = None,
+    ) -> None:
         self.path = path
+        self.events = events
+        self.run_id = run_id
+        self.stage: str | None = None
+
+    def record(self, name: str, summary: str, payload: dict | None = None) -> None:
+        """Log a collector event for Dev mode."""
+        if self.events is not None:
+            self.events.record(
+                "collector", name, summary, run_id=self.run_id, payload=payload
+            )
 
     def update(
         self, stage: str, detail: str = "", done: int = 0, total: int = 0
     ) -> None:
+        if stage != self.stage:
+            self.stage = stage
+            # Mid-stage counts go stale at once; only the final outcome is worth keeping
+            is_final = stage in ("done", "failed")
+            summary = (
+                f"{STAGES[stage][0]} · {detail}"
+                if is_final and detail
+                else STAGES[stage][0]
+            )
+            self.record("stage", summary)
         if self.path is None:
             return
         label, start, end = STAGES[stage]

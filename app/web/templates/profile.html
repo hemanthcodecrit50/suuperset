@@ -1,94 +1,97 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-head"><div><h1>Profile &amp; system</h1><p class="lede">Who you are, what you have built, and how the system is connected.</p></div></div>
+<div class="page-head">
+  <div>
+    <h1>Profile and system</h1>
+    <p class="lede">Who you are, what you have built, and how the app is connected.</p>
+  </div>
+</div>
 
-<div class="grid">
+<div class="grid-3">
   <section class="panel">
-    <h2>Superset connection</h2>
-    <p><span class="chip {{ {'connected': 'good', 'expired': 'warn', 'missing': 'muted'}[superset.state] }}">{{ {'connected': 'Connected', 'expired': 'Expired', 'missing': 'Not connected'}[superset.state] }}</span>
-       <span class="muted">{{ superset.message }}</span>{% if superset.saved_at %} Saved {{ superset.saved_at|relative }}.{% endif %}</p>
-    <p class="muted small">You log in on the real Superset page in your own browser window. Only the session cookies are kept, on this computer; your password is never seen or stored.</p>
-    <div class="actions">
-      <button class="button" hx-post="/superset/connect" hx-target="#login-slot" hx-swap="innerHTML">
-        {{ 'Reconnect' if superset.state != 'missing' else 'Connect Superset' }}
-      </button>
-      {% if superset.state != 'missing' %}
-      <form method="post" action="/superset/disconnect" class="inline"><button class="button ghost">Disconnect</button></form>
-      {% endif %}
+    <div class="panel-head" style="margin-bottom: 10px">
+      <div><span class="eyebrow">Superset</span><h2 style="margin-top: 4px">{{ {'connected': 'Connected', 'expired': 'Session expired', 'missing': 'Not connected'}[superset.state] }}</h2></div>
+      <span class="dot {{ {'connected': 'good', 'expired': 'warn'}.get(superset.state, '') }}"></span>
+    </div>
+    <p class="muted small">{% if superset.saved_at %}Session saved {{ superset.saved_at|relative }}. {% endif %}You log in on the real Superset page; only session cookies are kept on this computer, never your password.</p>
+    <div class="actions" style="margin-top: 16px">
+      <button class="button" hx-post="/superset/connect" hx-target="#login-slot" hx-swap="innerHTML">{{ 'Reconnect' if superset.state != 'missing' else 'Connect Superset' }}</button>
+      {% if superset.state != 'missing' %}<form method="post" action="/superset/disconnect" class="inline"><button class="button quiet">Disconnect</button></form>{% endif %}
     </div>
     <div id="login-slot">{% if login_job %}{% with job = login_job, job_name = 'login' %}{% include "_job.html" %}{% endwith %}{% endif %}</div>
   </section>
 
   <section class="panel">
-    <h2>AI model</h2>
-    {% if llm.configured %}
-      {% set usage = llm.budget.usage() %}
-      <p><span class="chip info">Configured</span> {{ llm.settings.research_model }}</p>
-      <div class="meter" title="{{ usage.used }} of {{ usage.limit }} requests used today">
-        <span style="width: {{ (usage.used / usage.limit * 100) if usage.limit else 100 }}%"></span>
-      </div>
-      <p class="muted small">{{ usage.used }} of {{ usage.limit }} requests used today; {{ usage.remaining }} left. Resets at midnight Pacific time. When the cap is reached the agent keeps working with evidence-only output. Check the key with <code>python -m app.main llm-check</code>.</p>
+    <div class="panel-head" style="margin-bottom: 10px">
+      <div><span class="eyebrow">AI model</span><h2 style="margin-top: 4px">{{ llm.settings.research_model if llm.configured else 'Off' }}</h2></div>
+    </div>
+    {% if llm.configured %}{% set usage = llm.budget.usage() %}
+      <div class="meter"><span style="width: {{ (usage.used / usage.limit * 100) if usage.limit else 100 }}%"></span></div>
+      <p class="muted small"><strong style="color: var(--ink)">{{ usage.used }} of {{ usage.limit }}</strong> requests used today, {{ usage.remaining }} left. Resets at midnight Pacific time. If the cap is reached, briefs still work without the model.</p>
     {% else %}
-      <p><span class="chip muted">Off</span> No model key set.</p>
-      <p class="muted small">Briefs still work without a model. Add a free Gemini key to <code>.env</code> for resume bullets and polished reports.</p>
+      <p class="muted small">No model key is set. Briefs still work; add a free key to <code>.env</code> for resume bullets and written verdicts.</p>
     {% endif %}
   </section>
 
   <section class="panel">
-    <h2>Collector</h2>
-    {% if runs %}
-    <table class="table compact">
-      <thead><tr><th>Run</th><th>Status</th><th>New</th><th>Changed</th></tr></thead>
-      <tbody>
-      {% for run in runs %}
-        <tr><td>{{ run.started_at|relative }}</td><td>{{ run.status }}</td><td>{{ run.items_new }}</td><td>{{ run.items_changed }}</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% else %}<p class="muted">No poll has run yet.</p>{% endif %}
-    <button class="button" hx-post="/poll" hx-target="#poll-slot" hx-swap="innerHTML">Run poll now</button>
+    <div class="panel-head" style="margin-bottom: 10px">
+      <div><span class="eyebrow">Collector</span><h2 style="margin-top: 4px">{% if runs %}Last poll {{ runs[0].started_at|relative }}{% else %}No poll yet{% endif %}</h2></div>
+    </div>
+    {% if runs %}<p class="muted small">{{ runs[0].status|capitalize }} · {{ runs[0].items_new }} new · {{ runs[0].items_changed }} changed</p>{% endif %}
+    <div class="actions" style="margin-top: 16px">
+      <button class="button" hx-post="/poll" hx-target="#poll-slot" hx-swap="innerHTML" hx-on::after-request="htmx.trigger(document.body, 'collector')">Run poll now</button>
+    </div>
     <div id="poll-slot">{% if poll_job %}{% with job = poll_job, job_name = 'poll' %}{% include "_job.html" %}{% endwith %}{% endif %}</div>
   </section>
 </div>
 
-<section class="panel">
-  <h2>About you</h2>
-  <p class="muted small">Used for fit scores and eligibility. Separate items with commas.</p>
-  <form method="post" action="/profile" class="form-grid">
-    {% for name in ['skills', 'technologies', 'interests', 'locations', 'companies'] %}
-      <label>{{ name|capitalize }}{% if name == 'companies' %} you follow{% endif %}
-        <input name="{{ name }}" value="{{ (matching.get(name) or [])|join(', ') }}">
-      </label>
-    {% endfor %}
-    <label>Degree <input name="degree" value="{{ matching.get('degree') or '' }}" placeholder="B.Tech"></label>
-    <label>CGPA <input name="cgpa" value="{{ matching.get('cgpa') or '' }}" inputmode="decimal"></label>
-    <label>Graduation year <input name="graduation_year" value="{{ matching.get('graduation_year') or '' }}" inputmode="numeric"></label>
-    <div><button class="button">Save profile</button></div>
+{% if dev_mode %}
+<div style="margin-top: 24px">{% include "_collector.html" %}</div>
+{% endif %}
+
+<section class="panel" style="margin-top: 24px">
+  <div class="panel-head">
+    <div><h2>About you</h2><p class="muted small">Used for fit scores and eligibility. Separate items with commas.</p></div>
+  </div>
+  <form method="post" action="/profile">
+    <div class="form-grid three">
+      <label>Degree <input name="degree" value="{{ matching.get('degree') or '' }}" placeholder="e.g. B.Tech"></label>
+      <label>CGPA <input name="cgpa" value="{{ matching.get('cgpa') or '' }}" inputmode="decimal" placeholder="e.g. 8.2"></label>
+      <label>Graduation year <input name="graduation_year" value="{{ matching.get('graduation_year') or '' }}" inputmode="numeric" placeholder="e.g. 2027"></label>
+      <label class="full">Skills <input name="skills" value="{{ (matching.get('skills') or [])|join(', ') }}" placeholder="e.g. Python, SQL, Data structures"></label>
+      <label>Technologies <input name="technologies" value="{{ (matching.get('technologies') or [])|join(', ') }}" placeholder="e.g. PostgreSQL, Docker"></label>
+      <label>Interests <input name="interests" value="{{ (matching.get('interests') or [])|join(', ') }}" placeholder="e.g. Backend, ML"></label>
+      <label>Preferred locations <input name="locations" value="{{ (matching.get('locations') or [])|join(', ') }}" placeholder="e.g. Bengaluru, Pune"></label>
+      <label class="full">Companies you follow <span class="hint">Always shown, even with a low fit score</span><input name="companies" value="{{ (matching.get('companies') or [])|join(', ') }}"></label>
+    </div>
+    <div class="form-actions"><button class="button">Save profile</button></div>
   </form>
 </section>
 
-<section class="panel" id="portfolio">
-  <h2>Portfolio</h2>
-  <p class="muted small">Real projects only. The resume advisor never suggests anything these records do not show.</p>
-  <ul class="plain">
-    {% for project in projects %}
-    <li class="project">
-      <div><strong>{{ project.name }}</strong> <span class="chip">{{ project.status|pretty }}</span>
-        <div class="sub">{{ (project.technologies or [])|join(', ') }}{% if project.evidence_url %} · <a href="{{ project.evidence_url }}" target="_blank" rel="noopener">evidence</a>{% endif %}</div>
-      </div>
-      <form method="post" action="/portfolio/{{ project.id }}/delete" class="inline"><button class="button ghost small">Remove</button></form>
-    </li>
-    {% else %}<li class="muted">No projects yet.</li>{% endfor %}
-  </ul>
-  <form method="post" action="/portfolio" class="form-grid">
-    <label>Name <input name="name" required></label>
-    <label>Technologies <input name="technologies" placeholder="Python, PostgreSQL"></label>
-    <label class="wide">Description <input name="description"></label>
-    <label>Evidence link <input name="evidence_url" type="url" placeholder="https://github.com/..."></label>
-    <label>Status
-      <select name="status">{% for option in project_statuses %}<option value="{{ option }}" {{ 'selected' if option == 'implemented' }}>{{ option|pretty }}</option>{% endfor %}</select>
-    </label>
-    <div><button class="button">Add project</button></div>
+<section class="panel" id="portfolio" style="margin-top: 24px">
+  <div class="panel-head">
+    <div><h2>Portfolio</h2><p class="muted small">Real projects only. Resume advice never goes beyond what these records show.</p></div>
+  </div>
+  {% for project in projects %}
+  <div class="project">
+    <div>
+      <strong>{{ project.name }}</strong> <span class="tag" style="margin-left: 6px">{{ project.status|pretty }}</span>
+      <div class="role-sub">{{ (project.technologies or [])|join(', ') or 'No technologies listed' }}{% if project.evidence_url %} · <a href="{{ project.evidence_url }}" target="_blank" rel="noopener">evidence ↗</a>{% endif %}</div>
+    </div>
+    <form method="post" action="/portfolio/{{ project.id }}/delete" class="inline"><button class="button quiet small">Remove</button></form>
+  </div>
+  {% else %}
+  <p class="faint small" style="padding: 8px 0 4px">No projects yet. Add your first one below.</p>
+  {% endfor %}
+  <form method="post" action="/portfolio" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line)">
+    <div class="form-grid">
+      <label>Project name <input name="name" required placeholder="e.g. Order service"></label>
+      <label>Technologies <input name="technologies" placeholder="e.g. Python, PostgreSQL"></label>
+      <label class="full">What it does <input name="description" placeholder="One line in your own words"></label>
+      <label>Evidence link <input name="evidence_url" type="url" placeholder="https://github.com/..."></label>
+      <label>Status <select name="status">{% for option in project_statuses %}<option value="{{ option }}" {{ 'selected' if option == 'implemented' }}>{{ option|pretty|capitalize }}</option>{% endfor %}</select></label>
+    </div>
+    <div class="form-actions"><button class="button secondary">Add project</button></div>
   </form>
 </section>
 {% endblock %}
