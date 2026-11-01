@@ -1,0 +1,10 @@
+<div id="poll-updates" hx-get="/poll/updates?since={{ since }}" hx-trigger="every 60s" hx-swap="outerHTML">
+  {% if new_count or changed_count %}
+  <div class="banner update-banner" role="status">
+    <span><strong>New from Superset:</strong>
+      {% if new_count %}{{ new_count }} new{% endif %}{% if new_count and changed_count %}, {% endif %}{% if changed_count %}{{ changed_count }} changed{% endif %}
+      since you opened this page.</span>
+    <a class="button small" href="">Refresh</a>
+  </div>
+  {% endif %}
+</div>

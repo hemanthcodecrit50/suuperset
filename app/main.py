@@ -747,32 +747,35 @@ def _cmd_web(args: argparse.Namespace) -> int:
 
 
 def _cmd_install_timers(_args: argparse.Namespace) -> int:
-    """Print the commands to install the systemd user timers."""
-    project = Path(__file__).resolve().parent.parent
-    units = ("placement-poll", "placement-deliver", "placement-remind", "placement-digest")
-    print("Run these to automate everything:\n")
-    print("  mkdir -p ~/.config/systemd/user")
-    for unit in units:
-        print(
-            f"  cp {project / 'deploy' / (unit + '.service')} "
-            f"{project / 'deploy' / (unit + '.timer')} ~/.config/systemd/user/"
-        )
-    print(f"""
-  systemctl --user daemon-reload
-  systemctl --user enable --now {' '.join(u + '.timer' for u in units)}
-  systemctl --user list-timers | grep placement
+    """Point at the automatic poll, which replaces the hand-copied timer files."""
+    print("Automatic polling is now set up from the web app (Profile > Collector),")
+    print("or from here:\n")
+    print("  python -m app.main auto-poll on --every 15")
+    print("  python -m app.main auto-poll status")
+    print("  python -m app.main auto-poll off")
+    print("\nTo keep polling after you log out:  sudo loginctl enable-linger $USER")
+    return 0
 
-Schedule:
-  placement-poll      every 30 min   collect new/changed postings
-  placement-remind    every 15 min   deadline reminders
-  placement-deliver   every 5 min    send queued alerts
-  placement-digest    every 1 hour   daily digest (sends once per day)
 
-Check logs with:
-  journalctl --user -u placement-poll.service -n 50 --no-pager
+def _cmd_auto_poll(args: argparse.Namespace) -> int:
+    """Turn the background poll timer on or off, or show when it runs next."""
+    from app.services.auto_poll import AutoPoll, AutoPollError
 
-Keep running after logout:
-  sudo loginctl enable-linger $USER""")
+    auto_poll = AutoPoll()
+    try:
+        if args.action == "on":
+            auto_poll.turn_on(args.every)
+        elif args.action == "off":
+            auto_poll.turn_off()
+    except AutoPollError as exc:
+        print(exc)
+        return 1
+    status = auto_poll.status()
+    if not status.is_on:
+        print("Automatic polling is off.")
+        return 0
+    next_run = status.next_run.strftime("%H:%M") if status.next_run else "soon"
+    print(f"Checking Superset every {status.interval_minutes} minutes; next at {next_run}.")
     return 0
 
 
@@ -803,7 +806,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("telegram-chat-id",
                    help="Find your Telegram chat id").set_defaults(func=_cmd_telegram_chat_id)
     sub.add_parser("install-timers",
-                   help="Print systemd user timer install steps").set_defaults(func=_cmd_install_timers)
+                   help="How to set up automatic polling").set_defaults(func=_cmd_install_timers)
+    auto_poll = sub.add_parser("auto-poll", help="Check Superset automatically at a fixed interval")
+    auto_poll.add_argument("action", choices=["on", "off", "status"])
+    auto_poll.add_argument("--every", type=int, default=15, help="Minutes between polls (10, 15, 30 or 60)")
+    auto_poll.set_defaults(func=_cmd_auto_poll)
     sub.add_parser("migrate",
                    help="Add missing columns to an existing database").set_defaults(func=_cmd_migrate)
 

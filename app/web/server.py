@@ -24,6 +24,12 @@ from app.jobs.progress import PollProgress, read_progress
 from app.models import Opportunity, ResumeSuggestion
 from app.services import fit, notices, portfolio, preferences, profile_insight
 from app.services.applications import STATUSES, track
+from app.services.auto_poll import (
+    DEFAULT_INTERVAL,
+    INTERVAL_CHOICES,
+    AutoPoll,
+    AutoPollError,
+)
 from app.services.branches import BRANCH_NAMES
 from app.services.events import SOURCES, EventLog, read_events
 from app.services.llm import LlmClient
@@ -69,6 +75,7 @@ def create_app(
     session_factory: SessionFactory | None = None,
     settings: Settings | None = None,
     job_runner: JobRunner | None = None,
+    auto_poll: AutoPoll | None = None,
 ) -> FastAPI:
     """Build the web app; tests pass their own session factory and job runner."""
     if session_factory is None:
@@ -79,6 +86,7 @@ def create_app(
     app.state.session_factory = session_factory
     app.state.settings = settings or get_settings()
     app.state.jobs = job_runner or JobRunner(JOB_LOG_DIR)
+    app.state.auto_poll = auto_poll or AutoPoll()
     # Which event-log run each posting's latest agent job writes to
     app.state.agent_runs = {}
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
@@ -171,7 +179,12 @@ def _register_routes(app: FastAPI, templates: Jinja2Templates) -> None:
         request: Request, session: Session, name: str, **context: Any
     ) -> HTMLResponse:
         settings = request.app.state.settings
-        runs = queries.recent_poll_runs(session, limit=1)
+        runs = queries.recent_poll_runs(session, limit=3)
+        context["latest_poll"] = runs[0] if runs else None
+        # Results of any poll after this one are announced on the open page
+        context["updates_since"] = next(
+            (run.id for run in runs if run.status != "running"), 0
+        )
         context["pending_count"] = queries.pending_approval_count(session)
         context["updates_count"] = notices.recent_applied_count(session)
         context["active_page"] = name
@@ -445,6 +458,9 @@ def _register_routes(app: FastAPI, templates: Jinja2Templates) -> None:
             poll_job=request.app.state.jobs.get("poll"),
             collector=collector_view(request) if is_dev_mode(request) else None,
             poll_running=is_poll_running(request),
+            auto_poll=request.app.state.auto_poll.status(),
+            interval_choices=INTERVAL_CHOICES,
+            default_interval=DEFAULT_INTERVAL,
             progress=poll_progress(request, request.app.state.jobs.get("poll")),
         )
         response.status_code = status_code
@@ -560,6 +576,38 @@ def _register_routes(app: FastAPI, templates: Jinja2Templates) -> None:
     def disconnect_superset(request: Request):
         disconnect(request.app.state.settings.storage_state_path)
         return RedirectResponse("/profile", status_code=303)
+
+    @app.post("/auto-poll")
+    def turn_on_auto_poll(
+        request: Request,
+        session: DbSession,
+        interval: Annotated[int, Form()] = DEFAULT_INTERVAL,
+    ):
+        try:
+            request.app.state.auto_poll.turn_on(interval)
+        except AutoPollError as exc:
+            return profile_page(request, session, 400, auto_poll_error=str(exc))
+        return RedirectResponse("/profile#collector-panel", status_code=303)
+
+    @app.post("/auto-poll/off")
+    def turn_off_auto_poll(request: Request, session: DbSession):
+        try:
+            request.app.state.auto_poll.turn_off()
+        except AutoPollError as exc:
+            return profile_page(request, session, 400, auto_poll_error=str(exc))
+        return RedirectResponse("/profile#collector-panel", status_code=303)
+
+    @app.get("/poll/updates", response_class=HTMLResponse)
+    def poll_updates(request: Request, session: DbSession, since: int = 0):
+        # Open pages ask this every minute; a newer poll with news shows a banner
+        runs = queries.recent_poll_runs(session, limit=10)
+        newer = [run for run in runs if run.id > since and run.status != "running"]
+        context = {
+            "since": since,
+            "new_count": sum(run.items_new for run in newer),
+            "changed_count": sum(run.items_changed for run in newer),
+        }
+        return templates.TemplateResponse(request, "_poll_updates.html", context)
 
     @app.post("/poll", response_class=HTMLResponse)
     def poll_now(request: Request):

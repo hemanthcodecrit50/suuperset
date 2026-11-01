@@ -46,3 +46,5 @@ def isolated_from_real_services(tmp_path, monkeypatch):
     monkeypatch.setenv("LLM_MIN_INTERVAL_SECONDS", "0")
     monkeypatch.setenv("EVENTS_FILE", str(tmp_path / "events.jsonl"))
     monkeypatch.setenv("POLL_PROGRESS_FILE", str(tmp_path / "poll_progress.json"))
+    # Never read or change the real systemd timers
+    monkeypatch.setattr("app.services.auto_poll.UNIT_DIR", tmp_path / "systemd-user")

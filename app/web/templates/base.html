@@ -32,6 +32,7 @@
         <a href="/profile" title="Superset connection">
           <span class="dot {{ {'connected': 'good', 'expired': 'warn'}.get(superset_state, '') }}"></span>Superset {{ {'connected': 'connected', 'expired': 'expired', 'missing': 'not connected'}[superset_state] }}
         </a>
+        {% if latest_poll %}<a href="/profile#collector-panel" class="checked" title="When Superset was last checked">Checked {{ latest_poll.started_at|relative }}</a>{% endif %}
         {% if llm.configured %}{% set usage = llm.budget.usage() %}
         <a href="/profile" title="AI requests used today">AI {{ usage.used }}/{{ usage.limit }}</a>
         {% endif %}
@@ -46,6 +47,7 @@
     </div>
   </header>
   <main class="page">
+    {% with since = updates_since, new_count = 0, changed_count = 0 %}{% include "_poll_updates.html" %}{% endwith %}
     {% block content %}{% endblock %}
   </main>
   <script>

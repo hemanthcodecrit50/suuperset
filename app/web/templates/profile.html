@@ -33,13 +33,32 @@
     {% endif %}
   </section>
 
-  <section class="panel">
+  <section class="panel" id="collector-panel">
     <div class="panel-head" style="margin-bottom: 10px">
       <div><span class="eyebrow">Collector</span><h2 style="margin-top: 4px">{% if runs %}Last poll {{ runs[0].started_at|relative }}{% else %}No poll yet{% endif %}</h2></div>
+      <span class="dot {{ 'good' if auto_poll.is_on }}" title="Automatic polling {{ 'on' if auto_poll.is_on else 'off' }}"></span>
     </div>
     {% if runs %}<p class="muted small">{{ runs[0].status|capitalize }} · {{ runs[0].items_new }} new · {{ runs[0].items_changed }} changed</p>{% endif %}
+
+    <div class="auto-poll">
+      {% if auto_poll.is_on %}
+        <p class="small"><strong>Checks Superset every {{ auto_poll.interval_minutes }} minutes</strong>{% if auto_poll.next_run %}, next at {{ auto_poll.next_run.strftime('%H:%M') }}{% endif %}. Runs in the background while you are logged in, even with this page closed.</p>
+      {% else %}
+        <p class="small muted">Automatic polling is off. Turn it on so new postings and deadline changes reach you without checking Superset yourself.</p>
+      {% endif %}
+      <form method="post" action="/auto-poll" class="actions" style="margin-top: 10px">
+        <select name="interval" aria-label="Poll interval">
+          {% for minutes in interval_choices %}<option value="{{ minutes }}" {{ 'selected' if minutes == (auto_poll.interval_minutes or default_interval) }}>Every {{ minutes }} min</option>{% endfor %}
+        </select>
+        <button class="button {{ 'secondary' if auto_poll.is_on }}">{{ 'Change' if auto_poll.is_on else 'Turn on' }}</button>
+        {% if auto_poll.is_on %}<button class="button quiet" formaction="/auto-poll/off">Turn off</button>{% endif %}
+      </form>
+      {% if auto_poll_error %}<div class="notice bad" style="margin-top: 10px">{{ auto_poll_error }}</div>{% endif %}
+      {% if auto_poll.is_on and superset.state != 'connected' %}<div class="notice bad" style="margin-top: 10px">Automatic polls cannot reach Superset until you {{ 'reconnect' if superset.state == 'expired' else 'connect' }} it.</div>{% endif %}
+    </div>
+
     <div class="actions" style="margin-top: 16px">
-      <button class="button" hx-post="/poll" hx-target="#poll-slot" hx-swap="innerHTML" hx-on::after-request="htmx.trigger(document.body, 'collector')">Run poll now</button>
+      <button class="button secondary" hx-post="/poll" hx-target="#poll-slot" hx-swap="innerHTML" hx-on::after-request="htmx.trigger(document.body, 'collector')">Run poll now</button>
     </div>
     <div id="poll-slot">{% if poll_job %}{% with job = poll_job, job_name = 'poll' %}{% include "_job.html" %}{% endwith %}{% endif %}</div>
   </section>

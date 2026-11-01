@@ -747,3 +747,9 @@ a.node:hover { text-decoration: none; border-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ---------- automatic polling ---------- */
+.auto-poll { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.auto-poll select { width: auto; }
+.update-banner { margin-bottom: 20px; }
+@media (max-width: 760px) { .topbar-status .checked { display: none; } }
