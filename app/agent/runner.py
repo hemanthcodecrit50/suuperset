@@ -9,7 +9,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.agent import store
 from app.agent.brief import render_brief
@@ -20,6 +20,7 @@ from app.agent.tools import ToolContext, call_tool
 from app.config import Settings, get_settings
 from app.models import Opportunity
 from app.services.events import EventLog
+from app.services.jd_insight import interpret_jd, needs_jd_insight
 from app.services.llm import LlmClient, default_client
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,7 @@ def _build_state(
     deps: AgentDeps,
 ) -> AgentState:
     session_context = ToolContext(session=session, settings=deps.settings)
+    _read_jd_if_needed(opportunity, deps)
     payload = _tool_result(
         session_context,
         "get_opportunity",
@@ -138,6 +140,20 @@ def _build_state(
         parsed_jd=parsed_jd,
         run_id=deps.run_id,
     )
+
+
+def _read_jd_if_needed(opportunity: Opportunity, deps: AgentDeps) -> None:
+    # The matcher scores from the AI's reading of the JD when one exists
+    if (
+        isinstance(deps.llm, LlmClient)
+        and deps.llm.configured
+        and needs_jd_insight(opportunity)
+    ):
+        if interpret_jd(opportunity, deps.llm):
+            deps.record("jd", "JD read by the AI before matching")
+            session = object_session(opportunity)
+            if session is not None:
+                session.flush()
 
 
 def _tool_result(

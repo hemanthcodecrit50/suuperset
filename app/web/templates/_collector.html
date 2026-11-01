@@ -1,5 +1,5 @@
 <div id="collector" class="dev-layer" hx-get="/collector" hx-swap="outerHTML"
-     hx-trigger="collector from:body{{ ', every 2s' if collector and collector.stages|selectattr('status', 'equalto', 'running')|list }}">
+     hx-trigger="collector from:body{{ ', every 2s' if poll_running }}">
   <div class="dev-head">
     <span class="eyebrow">Collector pipeline · latest poll</span>
     {% if collector %}<span class="faint mono">{{ collector.run_id }}</span>{% endif %}
@@ -33,7 +33,7 @@
           <li>
             <span class="what">{{ change.name }}</span>
             <span class="detail">{{ change.summary }}
-              {% for field, pair in change.payload.get('changes', {}).items() %}<br><span class="faint">{{ field }}:</span> <span class="diff-old">{{ pair.old|truncate(40) }}</span> → <span class="diff-new">{{ pair.new|truncate(40) }}</span>{% endfor %}
+              {% for field, pair in change.payload.get('changes', {}).items() %}<br><span class="faint">{{ field }}:</span> <span class="diff-old">{{ (pair.old or '')|string|truncate(40) }}</span> → <span class="diff-new">{{ (pair.new or '')|string|truncate(40) }}</span>{% endfor %}
             </span>
             <span class="cost">{{ change.payload.get('content_hash', '') }}</span>
           </li>

@@ -14,6 +14,16 @@
   </form>
 </div>
 
+{% if updates_count or upcoming %}
+<div class="banner">
+  <span>
+    {% if updates_count %}<strong>{{ updates_count }} update{{ '' if updates_count == 1 else 's' }}</strong> about companies you applied to this week.{% endif %}
+    {% if upcoming %}{% set next = upcoming[0] %} Next: <strong>{{ next.what }}</strong>{% if next.company %} ({{ next.company }}){% endif %} on {{ next.when.strftime('%a %d %b') }}{% if next.time %}, {{ next.time }}{% endif %}.{% endif %}
+  </span>
+  <a class="button secondary small" href="/updates">View updates</a>
+</div>
+{% endif %}
+
 <div class="summary-line">
   <a href="/?view=open"><strong>{{ stats.view_counts.open }}</strong>open</a>
   <a href="/?view=open" class="{{ 'urgent' if stats.closing_soon }}"><strong>{{ stats.closing_soon }}</strong>closing in 3 days</a>

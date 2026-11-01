@@ -142,6 +142,11 @@ class Settings(BaseSettings):
     agent_max_page_checks: int = 3
     # Stored company evidence is reused for this long before it is researched again.
     agent_company_cache_days: int = 7
+    # Notices about applied companies read by the AI per poll, and how far back to look
+    schedule_max_per_poll: int = 5
+    schedule_max_age_days: int = 21
+    # Postings whose JD the AI reads per poll (live and applied ones first)
+    jd_insight_max_per_poll: int = 5
 
     @property
     def storage_state_path(self) -> Path:

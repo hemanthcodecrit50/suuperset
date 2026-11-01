@@ -10,7 +10,8 @@ import datetime as dt
 import hashlib
 import json
 import logging
-from typing import Any, Iterable, Mapping
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -46,7 +47,7 @@ UNCHANGED = "unchanged"
 
 def _normalize(value: Any) -> Any:
     if isinstance(value, dt.datetime):
-        return value.astimezone(dt.timezone.utc).isoformat()
+        return value.astimezone(dt.UTC).isoformat()
     if isinstance(value, dt.date):
         return value.isoformat()
     if isinstance(value, Mapping):
@@ -102,7 +103,7 @@ def upsert_opportunity(
     ``change_type`` is one of ``"new"``, ``"changed"`` or ``"unchanged"``.
     Historical versions are written on every change.
     """
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     source_id = source_id if source_id is not None else _get_or_create_source_id(session)
     external_id = str(data["external_id"])
 
@@ -148,8 +149,19 @@ def upsert_opportunity(
     old_hash = existing.content_hash
     existing.last_seen_at = now
     existing.is_active = True
+    # Portal status lives in raw and is not hashed, so refresh it on every poll;
+    # merging keeps what earlier polls and the agent stored (parsed JD, documents)
+    merged_raw = {**(existing.raw or {}), **values["raw"]}
+    values["raw"] = merged_raw
+    if values["attachments"] == [] and existing.attachments:
+        values["attachments"] = existing.attachments
+    if merged_raw != existing.raw:
+        existing.raw = merged_raw
+    if values["attachments"] != existing.attachments:
+        existing.attachments = values["attachments"]
 
     if old_hash == new_hash:
+        session.flush()
         return existing, UNCHANGED
 
     session.add(
@@ -176,7 +188,7 @@ def upsert_announcement(
     session: Session, data: Mapping[str, Any], source_id: int | None = None
 ) -> tuple[Announcement, str]:
     """Insert or update an announcement; return ``(obj, change_type)``."""
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     source_id = source_id if source_id is not None else _get_or_create_source_id(session)
     external_id = str(data["external_id"])
 
@@ -227,6 +239,10 @@ def upsert_announcement(
             raw=existing.raw,
         )
     )
+    # Keep what was stored before, but read the schedule again from the new text
+    merged_raw = {**(existing.raw or {}), **values["raw"]}
+    merged_raw.pop("schedule_checked", None)
+    values["raw"] = merged_raw
     for key, value in values.items():
         setattr(existing, key, value)
     existing.content_hash = new_hash

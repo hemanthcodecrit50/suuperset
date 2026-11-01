@@ -49,3 +49,13 @@ def test_corrupt_lines_are_skipped(tmp_path):
     path.write_text("not json\n")
     EventLog(path).record("agent", "route", "ok")
     assert [event.summary for event in read_events(path)] == ["ok"]
+
+
+def test_events_can_be_filtered_by_name(tmp_path):
+    from app.services.events import EventLog, read_events
+
+    path = tmp_path / "events.jsonl"
+    log = EventLog(path)
+    log.record("collector", "stage", "Reading")
+    log.record("collector", "profile", "Re-read")
+    assert [event.summary for event in read_events(path, name="stage")] == ["Reading"]

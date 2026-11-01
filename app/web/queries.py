@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.store import BRIEF_KIND
 from app.models import (
+    Announcement,
     Application,
     Opportunity,
     PollRun,
@@ -49,10 +51,15 @@ class PostingRow:
 def inbox_rows(session: Session, view: str, query: str) -> list[PostingRow]:
     """Postings for the inbox, newest first, narrowed by view and search text."""
     statement = select(Opportunity).where(Opportunity.is_active.is_(True))
-    if query:
-        like = f"%{query.strip()}%"
+    if query.strip():
+        # Search text is literal: "%" and "_" must not act as wildcards
+        escaped = re.sub(r"([\\%_])", r"\\\1", query.strip())
+        like = f"%{escaped}%"
         statement = statement.where(
-            or_(Opportunity.title.ilike(like), Opportunity.company_name.ilike(like))
+            or_(
+                Opportunity.title.ilike(like, escape="\\"),
+                Opportunity.company_name.ilike(like, escape="\\"),
+            )
         )
     records = session.scalars(
         statement.order_by(desc(Opportunity.first_seen_at), desc(Opportunity.id)).limit(
@@ -114,19 +121,61 @@ def posting_status(session: Session, record: Opportunity) -> str | None:
     return _portal_status(record)
 
 
-def tracked_applications(
-    session: Session,
-) -> list[tuple[Application, Opportunity, int | None]]:
-    """Tracked applications with days left, soonest deadline first."""
-    rows = session.execute(
-        select(Application, Opportunity)
-        .join(Opportunity, Application.opportunity_id == Opportunity.id)
-        .order_by(Opportunity.deadline.is_(None), Opportunity.deadline)
-    ).all()
-    return [
-        (application, opportunity, days_until(opportunity.deadline))
-        for application, opportunity in rows
+@dataclass
+class ApplicationRow:
+    opportunity: Opportunity
+    application: Application | None
+    days_left: int | None
+
+    @property
+    def status(self) -> str | None:
+        if self.application is not None:
+            return self.application.status
+        return _portal_status(self.opportunity)
+
+    @property
+    def is_applied_on_superset(self) -> bool:
+        return (self.opportunity.raw or {}).get("application_status") == "APPLIED"
+
+
+def tracked_applications(session: Session) -> list[ApplicationRow]:
+    """Jobs tracked here or applied to on Superset, soonest deadline first."""
+    tracked = {
+        application.opportunity_id: application
+        for application in session.scalars(select(Application))
+    }
+    records = session.scalars(
+        select(Opportunity).order_by(
+            Opportunity.deadline.is_(None), desc(Opportunity.deadline)
+        )
+    )
+    rows = [
+        ApplicationRow(record, tracked.get(record.id), days_until(record.deadline))
+        for record in records
+        if record.id in tracked
+        or (record.raw or {}).get("application_status") == "APPLIED"
     ]
+    return sorted(rows, key=_application_order)
+
+
+def _application_order(row: ApplicationRow) -> tuple[int, float]:
+    # Upcoming deadlines first (soonest on top), then everything already closed, newest first
+    deadline = as_utc(row.opportunity.deadline)
+    if deadline is not None and row.days_left is not None and row.days_left >= 0:
+        return (0, deadline.timestamp())
+    return (1, -deadline.timestamp() if deadline else 0.0)
+
+
+def job_alerts(session: Session, limit: int = 100) -> list[Announcement]:
+    """Portal alerts about job profiles (opened, updated), newest first."""
+    return list(
+        session.scalars(
+            select(Announcement)
+            .where(Announcement.category == "JOBPROFILE")
+            .order_by(desc(Announcement.published_at))
+            .limit(limit)
+        )
+    )
 
 
 def suggestions(
@@ -170,7 +219,7 @@ def _posting_row(record: Opportunity, context: _RowContext) -> PostingRow:
     return PostingRow(
         id=record.id,
         title=record.title,
-        company=record.company_name or "Unknown company",
+        company=clean_company(record.company_name) or "Unknown company",
         location=clean_location(record.location),
         # Without a profile the score only reflects whether pay is listed
         fit_score=record.relevance_score if context.is_profile_set else None,
@@ -189,6 +238,15 @@ def clean_location(location: str | None) -> str | None:
     """Drop placeholder locations such as '.' that the portal sometimes returns."""
     text = (location or "").strip(" .,-")
     return text if any(char.isalnum() for char in text) else None
+
+
+def clean_company(name: str | None) -> str:
+    """Company name without stray endings the portal leaves, like "Acme," or "Acme..".
+
+    Display only: stored names stay as collected so content hashes do not change.
+    """
+    text = (name or "").strip().rstrip(",;-").strip()
+    return re.sub(r"\.{2,}$", ".", text)
 
 
 def _inbox_order(row: PostingRow) -> tuple[int, float]:

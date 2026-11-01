@@ -50,6 +50,9 @@ from app.services.events import EventLog
 
 logger = logging.getLogger(__name__)
 
+# How many unread notices to consider per poll; only the AI reads among them are capped
+SCHEDULE_SCAN_LIMIT = 100
+
 
 @dataclass
 class PollResult:
@@ -132,9 +135,8 @@ def _stored_details(session) -> dict:
 def _detail_predicate(settings: Settings):
     """Return a predicate deciding which jobs need a full-JD fetch.
 
-    Detail is fetched only for roles we have never detailed before, so the
-    request count stays near the number of *new* postings rather than the size
-    of the whole list on every poll.
+    Detail is fetched for roles never detailed before, and once more for live
+    or applied roles whose attached documents have not been checked yet.
     """
     from sqlalchemy import select as sa_select
 
@@ -144,23 +146,38 @@ def _detail_predicate(settings: Settings):
     with _scope() as session:
         rows = session.execute(
             sa_select(
-                _Opportunity.external_id, _Opportunity.detail_fetched_at
+                _Opportunity.external_id,
+                _Opportunity.detail_fetched_at,
+                _Opportunity.raw,
             )
         ).all()
-        already_detailed = {
-            external_id for external_id, fetched_at in rows if fetched_at is not None
-        }
+    already_detailed = {
+        external_id for external_id, fetched_at, _ in rows if fetched_at
+    }
+    documents_checked = {
+        external_id
+        for external_id, _, raw in rows
+        if (raw or {}).get("documents_checked")
+    }
 
     def need_detail(item: dict) -> bool:
-        return item.get("jobProfileIdentifier") not in already_detailed
+        job_id = item.get("jobProfileIdentifier")
+        if job_id not in already_detailed:
+            return True
+        return job_id not in documents_checked and _is_live_or_applied(item)
 
-    known_count = len(rows)
     logger.info(
-        "Detail fetches limited to unseen roles (%d already detailed of %d known).",
+        "Detail fetches: unseen roles plus live or applied roles without checked documents "
+        "(%d detailed, %d with documents checked).",
         len(already_detailed),
-        known_count,
+        len(documents_checked),
     )
     return need_detail
+
+
+def _is_live_or_applied(item: dict) -> bool:
+    is_live = item.get("jobProfileStatus") in ("OPEN_FOR_APPLICATIONS", "IN_PROCESS")
+    return is_live or item.get("jobApplicationStatus") == "APPLIED"
 
 
 async def _collect(
@@ -236,13 +253,15 @@ async def _collect(
 
         # DOM fallback (only meaningful when explicitly selected)
         ann_page = await session.goto(
-            settings.superset_base_url.rstrip("/") + settings.superset_notifications_path,
+            settings.superset_base_url.rstrip("/")
+            + settings.superset_notifications_path,
             expect_app=True,
         )
         announcements = await collect_announcements(ann_page, max_scrolls=10)
 
         job_page = await session.goto(
-            settings.superset_base_url.rstrip("/") + settings.superset_job_profiles_path,
+            settings.superset_base_url.rstrip("/")
+            + settings.superset_job_profiles_path,
             expect_app=True,
         )
         opportunities = await collect_job_profiles(
@@ -267,24 +286,9 @@ def _score_and_gate(
     Returns ``(should_alert, reasons)``. Low-relevance items are still stored
     and visible in the dashboard — they are simply not pushed to the user.
     """
-    from app.services.matching import score_opportunity
+    from app.services.fit import apply_fit
 
-    payload = {
-        "title": record.title,
-        "role": record.role,
-        "job_function": record.job_function,
-        "work_type": record.work_type,
-        "location": record.location,
-        "compensation": record.compensation,
-        "description": record.description,
-        "skills": record.skills or [],
-    }
-    match = score_opportunity(payload, preferences.as_match_kwargs())
-
-    record.relevance_score = match.score
-    record.relevance_reasons = match.reasons
-    record.relevance_unknown = match.unknown
-    record.eligible = match.hard_constraints_met
+    match = apply_fit(record, preferences.as_match_kwargs())
 
     reasons = list(match.reasons)
     if match.hard_constraints_met is False:
@@ -411,14 +415,21 @@ def _persist(
     seeded = 0
     for index, opp in enumerate(opportunities, start=1):
         progress.update(
-            "save", f"{index} of {len(opportunities)} postings", index, len(opportunities)
+            "save",
+            f"{index} of {len(opportunities)} postings",
+            index,
+            len(opportunities),
         )
         # A skipped detail fetch must not erase data we already have.
         if not opp.raw.get("detail_fetched"):
             stored = stored_details.get(opp.external_id)
             if stored:
-                for field_name in ("description", "compensation", "eligibility",
-                                   "job_function"):
+                for field_name in (
+                    "description",
+                    "compensation",
+                    "eligibility",
+                    "job_function",
+                ):
                     if not getattr(opp, field_name, None):
                         setattr(opp, field_name, stored.get(field_name))
                 if not opp.skills and stored.get("skills"):
@@ -441,7 +452,9 @@ def _persist(
         should_alert = change in (NEW, CHANGED)
         reasons: list[str] = []
         if should_alert:
-            should_alert, reasons = _score_and_gate(session, record, preferences, change)
+            should_alert, reasons = _score_and_gate(
+                session, record, preferences, change
+            )
 
         changes: dict = {}
         if change == CHANGED:
@@ -458,7 +471,10 @@ def _persist(
             # brief carries the AI analysis, so the summary line stays factual.
             document = build_document(record, change, changes=changes, use_model=False)
             brief = None
-            if queue_alerts and result.items_briefed < settings.agent_max_briefs_per_run:
+            if (
+                queue_alerts
+                and result.items_briefed < settings.agent_max_briefs_per_run
+            ):
                 progress.update(
                     "save",
                     f"Writing agent brief for {record.title} at {record.company_name}",
@@ -469,9 +485,7 @@ def _persist(
                 if brief:
                     document += "\n" + brief
                     result.items_briefed += 1
-            document_path = write_document(
-                document, record.company_name, record.title
-            )
+            document_path = write_document(document, record.company_name, record.title)
             message = format_telegram(
                 record,
                 change,
@@ -509,6 +523,9 @@ def _persist(
         result.details["agent_briefs"] = result.items_briefed
     if seeded:
         result.details["seeded_without_documents"] = seeded
+    if queue_alerts:
+        result.details["schedules_read"] = _read_schedules(session, settings, progress)
+        result.details["jds_read"] = _read_jds(session, settings, progress)
     progress.record(
         "guards",
         _guard_summary(result, seeded, suppressed, settings),
@@ -524,7 +541,89 @@ def _persist(
     return result
 
 
-def _record_change(progress: ProgressReporter, record, change: str, changes: dict) -> None:
+def _read_jds(session, settings: Settings, progress: ProgressReporter) -> int:
+    """Have the AI read a few more JDs and the profile (if it changed), then rescore them."""
+    from app.services.fit import apply_fit, rescore_all
+    from app.services.jd_insight import interpret_jd, postings_needing_insight
+    from app.services.llm import LlmClient
+    from app.services.preferences import load_preferences
+    from app.services.profile_insight import refresh_profile_insight
+
+    llm = LlmClient(settings=settings, events=progress.events, run_id=progress.run_id)
+    if not llm.configured:
+        return 0
+    if refresh_profile_insight(session, llm):
+        progress.record("profile", "Profile re-read by the AI; all postings rescored")
+        rescore_all(session)
+    profile = load_preferences(session).as_match_kwargs()
+    read = 0
+    for record in postings_needing_insight(session, settings.jd_insight_max_per_poll):
+        if not interpret_jd(record, llm):
+            break  # No answer (cap reached or provider down): try again next poll
+        match = apply_fit(record, profile)
+        skills = record.raw["jd_insight"]["required_skills"]
+        progress.record(
+            "jd",
+            f"{record.company_name} · {record.title} · {len(skills)} skills · fit {match.score}",
+            payload={"jd_insight": record.raw["jd_insight"]},
+        )
+        read += 1
+    return read
+
+
+def _read_schedules(session, settings: Settings, progress: ProgressReporter) -> int:
+    """Pull dated events from new notices about companies the student applied to."""
+    from app.services.llm import LlmClient
+    from app.services.notices import (
+        applied_companies,
+        is_application_opening,
+        is_schedule_table,
+        notices_needing_schedule,
+    )
+    from app.services.schedule import extract_schedule, parse_schedule_table
+
+    llm = LlmClient(settings=settings, events=progress.events, run_id=progress.run_id)
+    companies = applied_companies(session)
+    pending = notices_needing_schedule(
+        session, max_age_days=settings.schedule_max_age_days, limit=SCHEDULE_SCAN_LIMIT
+    )
+    ai_reads = 0
+    read = 0
+    for notice, company in pending:
+        text = f"{notice.title}\n{notice.body or ''}"
+        if is_schedule_table(notice.title, text):
+            events = parse_schedule_table(text, companies)
+        elif is_application_opening(notice.title):
+            events = []
+        elif llm.configured and ai_reads < settings.schedule_max_per_poll:
+            ai_reads += 1
+            year = (notice.published_at or dt.datetime.now(dt.UTC)).year
+            events = extract_schedule(
+                text, llm, year_hint=year, companies=companies, default_company=company
+            )
+        else:
+            continue  # AI cap reached for this poll: read it next time
+        if events is None:
+            continue  # No answer (cap reached or provider down): try again next poll
+        notice.raw = {
+            **(notice.raw or {}),
+            "company": company,
+            "schedule": events,
+            "schedule_checked": True,
+        }
+        progress.record(
+            "schedule",
+            f"{company} · {len(events)} dated event{'s' if len(events) != 1 else ''} "
+            f'in "{notice.title}"',
+            payload={"events": events},
+        )
+        read += 1
+    return read
+
+
+def _record_change(
+    progress: ProgressReporter, record, change: str, changes: dict
+) -> None:
     fields = ", ".join(changes) if changes else "new posting"
     progress.record(
         change,
@@ -533,16 +632,27 @@ def _record_change(progress: ProgressReporter, record, change: str, changes: dic
             "opportunity_id": record.id,
             "content_hash": (record.content_hash or "")[:12],
             "changes": {
-                name: {"old": str(pair.get("old")), "new": str(pair.get("new"))}
+                name: {
+                    "old": _change_text(pair.get("old")),
+                    "new": _change_text(pair.get("new")),
+                }
                 for name, pair in changes.items()
             },
         },
     )
 
 
-def _guard_summary(result: PollResult, seeded: int, suppressed: int, settings: Settings) -> str:
+def _change_text(value) -> str:
+    return "" if value is None else str(value)
+
+
+def _guard_summary(
+    result: PollResult, seeded: int, suppressed: int, settings: Settings
+) -> str:
     if seeded:
-        return f"First run: {seeded} backlog items stored with no alerts and no AI calls"
+        return (
+            f"First run: {seeded} backlog items stored with no alerts and no AI calls"
+        )
     return (
         f"{result.alerts_queued} alerts queued (cap {settings.max_alerts_per_run}) · "
         f"{result.items_briefed} briefs (cap {settings.agent_max_briefs_per_run}) · "
@@ -550,7 +660,9 @@ def _guard_summary(result: PollResult, seeded: int, suppressed: int, settings: S
     )
 
 
-def _agent_brief(session, settings: Settings, record, change: str, changes: dict) -> str:
+def _agent_brief(
+    session, settings: Settings, record, change: str, changes: dict
+) -> str:
     """Run the agent graph for one item; a failure must never stop collection."""
     from app.agent.runner import analyze_opportunity, default_deps
 
@@ -616,10 +728,14 @@ async def _run_once(settings: Settings, progress: ProgressReporter) -> PollResul
             return result
         except SessionExpiredError as exc:
             logger.error("Session expired: %s", exc)
-            progress.update("failed", "Superset session expired. Reconnect from Profile.")
+            progress.update(
+                "failed", "Superset session expired. Reconnect from Profile."
+            )
             with session_scope() as session:
                 _finalize_run(
-                    session, _latest_run_id(session), PollResult(status="failed", error=str(exc))
+                    session,
+                    _latest_run_id(session),
+                    PollResult(status="failed", error=str(exc)),
                 )
             raise
         except Exception as exc:  # noqa: BLE001 - retry transient failures
@@ -705,9 +821,7 @@ def check_heartbeat(settings: Settings | None = None) -> bool:
         )
         if last_success is not None:
             return False
-        logger.error(
-            "Heartbeat: no successful poll since %s", cutoff.isoformat()
-        )
+        logger.error("Heartbeat: no successful poll since %s", cutoff.isoformat())
         enqueue_alert(
             session,
             channel=_channel(settings),

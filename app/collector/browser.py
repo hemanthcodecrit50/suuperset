@@ -46,7 +46,7 @@ class BrowserSession:
         self.settings = settings or get_settings()
         self.headless = headless
 
-    async def __aenter__(self) -> "BrowserSession":
+    async def __aenter__(self) -> BrowserSession:
         await self.start()
         return self
 

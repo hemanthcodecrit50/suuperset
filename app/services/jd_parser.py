@@ -12,8 +12,9 @@ the critic can trace every parsed value back to a line in the JD.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 from app.collector.api import html_to_text
 
@@ -110,6 +111,33 @@ _TECH_VOCABULARY: dict[str, str] = {
     "agile": "Agile",
     "scrum": "Scrum",
     "jira": "Jira",
+    # Core engineering, electronics and business tools, so non-software JDs are read too
+    "autocad": "AutoCAD",
+    "solidworks": "SolidWorks",
+    "ansys": "ANSYS",
+    "catia": "CATIA",
+    "creo": "Creo",
+    "fusion 360": "Fusion 360",
+    "simulink": "Simulink",
+    "revit": "Revit",
+    "staad pro": "STAAD Pro",
+    "etabs": "ETABS",
+    "plc": "PLC",
+    "labview": "LabVIEW",
+    "verilog": "Verilog",
+    "systemverilog": "SystemVerilog",
+    "vhdl": "VHDL",
+    "embedded c": "Embedded C",
+    "arduino": "Arduino",
+    "raspberry pi": "Raspberry Pi",
+    "pcb design": "PCB design",
+    "ltspice": "LTspice",
+    "excel": "Excel",
+    "figma": "Figma",
+    "salesforce": "Salesforce",
+    "google analytics": "Google Analytics",
+    "seo": "SEO",
+    "tally": "Tally",
 }
 
 _HEADING_ALIASES: dict[str, tuple[str, ...]] = {
@@ -226,18 +254,30 @@ _PAY_MARKERS = (
 )
 
 _MONTHS = {
-    "jan": 1, "january": 1,
-    "feb": 2, "february": 2,
-    "mar": 3, "march": 3,
-    "apr": 4, "april": 4,
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
     "may": 5,
-    "jun": 6, "june": 6,
-    "jul": 7, "july": 7,
-    "aug": 8, "august": 8,
-    "sep": 9, "sept": 9, "september": 9,
-    "oct": 10, "october": 10,
-    "nov": 11, "november": 11,
-    "dec": 12, "december": 12,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
 }
 
 _DEGREE_PATTERN = re.compile(
@@ -582,29 +622,45 @@ def parse_pay(text: str) -> PayInfo | None:
         if not match:
             continue
         amount = _to_float(match.group(1))
-        unit = _unit(match.group(2) if match.lastindex and match.lastindex >= 2 else None)
+        unit = _unit(
+            match.group(2) if match.lastindex and match.lastindex >= 2 else None
+        )
         if "usd" in lowered or "$" in match.group(0):
             currency = "USD"
-        elif any(token in match.group(0).lower() for token in ("₹", "inr", "rs", "rupee")):
-            currency = "INR"
-        elif unit in ("lakh", "crore") or "lpa" in lowered:
+        elif (
+            any(
+                token in match.group(0).lower() for token in ("₹", "inr", "rs", "rupee")
+            )
+            or unit in ("lakh", "crore")
+            or "lpa" in lowered
+        ):
             currency = "INR"
         break
 
     if amount is None:
         return None
-    if currency is None and any(token in lowered for token in ("₹", "inr", "rs.", "rupees", "lpa")):
+    if currency is None and any(
+        token in lowered for token in ("₹", "inr", "rs.", "rupees", "lpa")
+    ):
         currency = "INR"
 
     interval: str | None = None
     if any(
         token in lowered
-        for token in ("per annum", "p.a.", "annum", "annual", "lpa", "lakh", "lac", "crore")
+        for token in (
+            "per annum",
+            "p.a.",
+            "annum",
+            "annual",
+            "lpa",
+            "lakh",
+            "lac",
+            "crore",
+        )
     ):
         interval = "annum"
     elif any(
-        token in lowered
-        for token in ("per month", "monthly", "month", "stipend")
+        token in lowered for token in ("per month", "monthly", "month", "stipend")
     ):
         interval = "month"
     elif any(token in lowered for token in ("per year", "yearly", "annual")):
@@ -639,7 +695,10 @@ def _parse_pay(lines: list[str], sections: dict[str, list[str]]) -> PayInfo | No
     # Prefer a line that is explicitly about CTC/salary, then the first figure.
     parsed.sort(
         key=lambda item: (
-            not any(token in item.raw.lower() for token in ("ctc", "salary", "package", "stipend")),
+            not any(
+                token in item.raw.lower()
+                for token in ("ctc", "salary", "package", "stipend")
+            ),
             item.raw.lower().find("ctc") == -1,
         )
     )
@@ -713,9 +772,7 @@ def _valid_date(year: int, month: int, day: int) -> str | None:
         return None
 
 
-def _parse_eligibility(
-    lines: list[str], sections: dict[str, list[str]]
-) -> str | None:
+def _parse_eligibility(lines: list[str], sections: dict[str, list[str]]) -> str | None:
     section = sections.get("eligibility") or []
     relevant = [
         line
@@ -740,6 +797,26 @@ def _parse_eligibility(
     parts = list(section) + relevant
     text = " ".join(" ".join(part.split()) for part in _dedupe(parts))
     return text[:800] or None
+
+
+def find_degree(text: str) -> str | None:
+    """First recognised degree in any text, in canonical form (B.Tech, MCA...)."""
+    return _parse_degree(text)
+
+
+def find_cgpa(text: str) -> float | None:
+    """A CGPA/GPA value on a 10-point scale, if the text states one."""
+    return _parse_cgpa(text)
+
+
+def find_technologies(text: str) -> list[str]:
+    """Known technologies mentioned anywhere in the text."""
+    found = []
+    for term, canonical in _TECH_VOCABULARY.items():
+        pattern = r"(?<![\w+#.])" + re.escape(term) + r"(?![\w+#.])"
+        if re.search(pattern, text, re.IGNORECASE):
+            found.append(canonical)
+    return _dedupe(found)
 
 
 def _parse_degree(text: str) -> str | None:
@@ -801,7 +878,9 @@ def _parse_work_type(
             return "Internship"
         if "full time" in lowered or "full-time" in lowered:
             return "Full Time"
-    match = re.search(r"\b(internship|full[- ]time|part[- ]time|contract)\b", text, re.IGNORECASE)
+    match = re.search(
+        r"\b(internship|full[- ]time|part[- ]time|contract)\b", text, re.IGNORECASE
+    )
     if match:
         return {
             "internship": "Internship",

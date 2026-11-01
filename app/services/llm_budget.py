@@ -60,8 +60,12 @@ class LlmBudget:
 
     def _read(self, handle) -> dict:
         handle.seek(0)
-        text = handle.read()
-        record = json.loads(text) if text.strip() else {}
+        try:
+            record = json.loads(handle.read() or "{}")
+        except json.JSONDecodeError:
+            record = None
+        if not isinstance(record, dict):
+            record = {}  # A damaged file must not take every page down
         if record.get("day") != _quota_day():
             return {
                 "day": _quota_day(),

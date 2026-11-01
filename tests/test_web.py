@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.models import (
+    Announcement,
     Application,
     Base,
     Opportunity,
@@ -416,3 +417,189 @@ def test_activity_can_be_filtered_by_source(factory, tmp_path):
     client = TestClient(create_app(factory, settings, FakeJobRunner()))
     page = client.get("/activity/stream?source=ai").text
     assert "Claims request" in page and "Reading announcements" not in page
+
+
+def test_uploading_a_resume_shows_the_review_page(client):
+    from resume_pdf import RESUME_LINES, make_pdf
+
+    files = {"resume": ("resume.pdf", make_pdf(RESUME_LINES), "application/pdf")}
+    page = client.post("/profile/resume", files=files).text
+    assert "Review your resume details" in page and 'value="B.Tech"' in page
+
+
+def test_uploading_a_non_pdf_shows_an_error(client):
+    files = {"resume": ("notes.txt", b"just some notes", "text/plain")}
+    assert "not a PDF" in client.post("/profile/resume", files=files).text
+
+
+def test_applying_a_review_saves_the_profile(client, factory):
+    from app.services.preferences import load_preferences
+
+    client.post("/profile/resume/apply", data={"degree": "B.Tech", "skills": "Python, SQL", "project_count": "0"})
+    with factory() as session:
+        assert load_preferences(session).matching["skills"] == ["Python", "SQL"]
+
+
+def test_only_ticked_projects_are_added(client, factory):
+    from app.models import PortfolioItem
+
+    client.post(
+        "/profile/resume/apply",
+        data={
+            "project_count": "2",
+            "project-0-include": "1",
+            "project-0-name": "Order Service",
+            "project-1-name": "Campus Navigator",
+        },
+    )
+    with factory() as session:
+        assert [item.name for item in session.query(PortfolioItem)] == ["Order Service"]
+
+
+def test_a_project_already_in_the_portfolio_is_not_added_twice(client, factory):
+    from app.models import PortfolioItem
+
+    data = {"project_count": "1", "project-0-include": "1", "project-0-name": "Order Service"}
+    client.post("/profile/resume/apply", data=data)
+    client.post("/profile/resume/apply", data=data)
+    with factory() as session:
+        assert session.query(PortfolioItem).count() == 1
+
+
+def test_jobs_applied_on_superset_appear_on_applications(client, factory, posting_id):
+    with factory() as session:
+        session.get(Opportunity, posting_id).raw = {"application_status": "APPLIED"}
+        session.commit()
+    assert "Backend Intern" in client.get("/applications").text
+
+
+def test_updates_page_shows_notices(client, factory, posting_id):
+    with factory() as session:
+        source = session.query(Source).first()
+        session.add(
+            Announcement(
+                source_id=source.id, external_id="notice:9", title="Weekly Tentative Schedule",
+                body="Monday: tests", category="NOTICE", raw={},
+                published_at=dt.datetime.now(dt.UTC),
+            )
+        )
+        session.commit()
+    assert "Weekly Tentative Schedule" in client.get("/updates?view=all").text
+
+
+def test_updates_page_has_an_empty_state(client):
+    assert "No notices about your applications" in client.get("/updates").text
+
+
+def test_profile_page_explains_the_ai_understanding(client):
+    assert "What the AI understood" in client.get("/profile").text
+
+
+def test_removing_a_suggestion_records_it(client, factory):
+    from app.services.preferences import KEY_PROFILE_INSIGHT, load_setting
+
+    client.post("/profile/insight/remove", data={"item": "skill:Java"})
+    with factory() as session:
+        assert load_setting(session, KEY_PROFILE_INSIGHT)["removed"] == ["skill:Java"]
+
+
+def test_brief_links_that_run_script_are_disabled(client, factory, posting_id):
+    _add_brief(factory, posting_id, "[click](javascript:alert(1)) ![x](javascript:alert(2))")
+    page = client.get(f"/postings/{posting_id}").text
+    assert "javascript:" not in page
+
+
+def test_characters_missing_from_the_font_are_replaced(client, factory, posting_id):
+    _add_brief(factory, posting_id, "Pay 1,334,200 INR, performance‑based")
+    page = client.get(f"/postings/{posting_id}").text
+    assert "1,334,200 INR" in page and "performance-based" in page
+
+
+def test_stray_endings_on_company_names_are_hidden(client, factory, posting_id):
+    with factory() as session:
+        session.get(Opportunity, posting_id).company_name = "Vibran Technologies,"
+        session.commit()
+    assert "Vibran Technologies," not in client.get("/?view=all").text
+
+
+def test_search_treats_percent_as_a_literal(client, posting_id):
+    assert "Backend Intern" not in client.get("/?view=all&q=%25").text
+
+
+def test_missing_posting_shows_a_page_to_browsers(client):
+    response = client.get("/postings/999", headers={"accept": "text/html"})
+    assert response.status_code == 404 and "Back to the inbox" in response.text
+
+
+def test_approving_reloads_the_page(client, factory, posting_id):
+    suggestion_id = _add_suggestion(factory, posting_id)
+    response = client.post(f"/approvals/{suggestion_id}/approve")
+    assert response.headers["HX-Refresh"] == "true"
+
+
+def test_saving_the_profile_confirms_it(client):
+    response = client.post("/profile", data={"skills": "Python"})
+    assert "Profile saved" in response.text
+
+
+def test_invalid_cgpa_is_explained_on_the_profile_page(client):
+    response = client.post("/profile", data={"cgpa": "eight"})
+    assert "is not a valid number" in response.text and "About you" in response.text
+
+
+@pytest.mark.parametrize(
+    "field, value", [("cgpa", "99"), ("graduation_year", "1"), ("cgpa", "nan")]
+)
+def test_out_of_range_numbers_are_rejected(client, field, value):
+    assert client.post("/profile", data={field: value}).status_code == 400
+
+
+@pytest.mark.parametrize(
+    "form",
+    [
+        {"name": "  "},
+        {"name": "Order Service", "status": "bogus"},
+        {"name": "Order Service", "evidence_url": "javascript:alert(1)"},
+    ],
+)
+def test_invalid_projects_are_rejected(client, factory, form):
+    from app.models import PortfolioItem
+
+    assert client.post("/portfolio", data=form).status_code == 400
+    with factory() as session:
+        assert session.query(PortfolioItem).count() == 0
+
+
+def test_a_malformed_resume_form_does_not_crash(client):
+    response = client.post(
+        "/profile/resume/apply", data={"project_count": "abc", "skills": "Python"}
+    )
+    assert response.status_code == 200 and "Python" in response.text
+
+
+def test_imported_project_links_must_be_web_addresses(client, factory):
+    from app.models import PortfolioItem
+
+    client.post(
+        "/profile/resume/apply",
+        data={
+            "project_count": "1",
+            "project-0-include": "1",
+            "project-0-name": "Order Service",
+            "project-0-link": "javascript:alert(1)",
+        },
+    )
+    with factory() as session:
+        assert session.query(PortfolioItem).one().evidence_url is None
+
+
+def test_collector_panel_follows_the_latest_poll(factory, tmp_path):
+    from app.services.events import EventLog
+
+    events_path = tmp_path / "events.jsonl"
+    log = EventLog(events_path)
+    log.record("collector", "stage", "Reading announcements", run_id="poll-1")
+    log.record("collector", "profile", "Profile re-read", run_id="manual")
+    settings = make_settings(events_file=str(events_path))
+    client = TestClient(create_app(factory, settings, FakeJobRunner()))
+    assert "poll-1" in client.get("/collector").text

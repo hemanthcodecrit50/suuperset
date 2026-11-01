@@ -14,6 +14,9 @@
       <a class="brand" href="/">Placement<br>Copilot</a>
       <nav class="nav" aria-label="Main">
         <a href="/" class="{{ 'active' if active_page in ('inbox', 'posting') }}">Inbox</a>
+        <a href="/updates" class="{{ 'active' if active_page == 'updates' }}">
+          Updates{% if updates_count %}<span class="count">{{ updates_count }}</span>{% endif %}
+        </a>
         <a href="/approvals" class="{{ 'active' if active_page == 'approvals' }}">
           Approvals{% if pending_count %}<span class="count">{{ pending_count }}</span>{% endif %}
         </a>
@@ -49,11 +52,23 @@
     // Press "/" to search; click anywhere on a row to open it
     document.addEventListener("keydown", function (event) {
       var search = document.querySelector("[data-search]");
-      if (event.key === "/" && search && document.activeElement.tagName !== "INPUT") {
+      var active = document.activeElement;
+      var isTyping = active && (/^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) || active.isContentEditable);
+      if (event.key === "/" && search && !isTyping) {
         event.preventDefault();
         search.focus();
       }
     });
+    // A link to one notice (#notice-12) opens and scrolls to it
+    function openLinkedNotice() {
+      var target = window.location.hash && document.getElementById(window.location.hash.slice(1));
+      if (target && target.tagName === "DETAILS") {
+        target.open = true;
+        target.scrollIntoView({ block: "start" });
+      }
+    }
+    window.addEventListener("hashchange", openLinkedNotice);
+    document.addEventListener("DOMContentLoaded", openLinkedNotice);
     document.addEventListener("click", function (event) {
       var row = event.target.closest("[data-href]");
       if (row && !event.target.closest("a, button, select, input, form, summary")) {

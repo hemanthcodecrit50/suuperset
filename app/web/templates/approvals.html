@@ -17,8 +17,8 @@
         <div style="font-weight: 500; font-size: 15px">{{ suggestion.bullet }}</div>
         <div class="role-sub" style="margin-top: 6px">
           {% if suggestion.requirement %}For {{ suggestion.requirement }}{% endif %}
-          {% if opportunity %} · <a href="/postings/{{ opportunity.id }}">{{ opportunity.title }} at {{ opportunity.company_name }}</a>{% endif %}
-          {% if suggestion.evidence %} · <a href="{{ suggestion.evidence }}" target="_blank" rel="noopener">evidence ↗</a>{% endif %}
+          {% if opportunity %} · <a href="/postings/{{ opportunity.id }}">{{ opportunity.title }} at {{ opportunity.company_name|company }}</a>{% endif %}
+          {% if suggestion.evidence %} · <a href="{{ suggestion.evidence|safe_url }}" target="_blank" rel="noopener">evidence ↗</a>{% endif %}
         </div>
       </td>
       <td class="num">
@@ -40,7 +40,7 @@
 <table class="table boxed">
   <tbody>
   {% for suggestion, opportunity in approved %}
-    <tr><td>{{ suggestion.bullet }}</td><td class="num muted small">{{ opportunity.company_name if opportunity else '' }}</td></tr>
+    <tr><td>{{ suggestion.bullet }}</td><td class="num muted small">{{ opportunity.company_name|company if opportunity else '' }}</td></tr>
   {% endfor %}
   </tbody>
 </table>

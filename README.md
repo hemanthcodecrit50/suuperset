@@ -178,6 +178,28 @@ SQLite or local PostgreSQL, free search APIs, and optional local Ollama for the
 model features (resume bullets, report polishing). See
 [`docs/ai_setup.md`](docs/ai_setup.md).
 
+**Updates** collects the full notices from your placement cell (schedules, test
+instructions, process updates) and highlights the ones that mention a company you
+applied to. For new notices about those companies, the AI pulls out dates, times
+and venues into an **Upcoming** list (at most 5 notices per poll, only the last 21
+days, and every value is checked against the notice text). The same notices show
+under **Related updates** on each posting, and the inbox shows a banner when there
+is news about your applications.
+
+**JD documents** attached to a posting are downloaded read-only when they look
+like a job description (PDF or Word; policy guides, declarations and spreadsheets
+are skipped) and their text is fed to the agent. Jobs you applied to on Superset
+appear on **Applications** automatically.
+
+**Fit scores** measure how much of a posting's requirements you cover, plus role,
+location and pay fit; anything unknown counts as neutral, and Superset's own
+eligibility verdict always wins. The AI reads your profile once whenever it changes
+(skills it covers, states expanded into cities, roles that suit you) and reads each
+JD once (up to 5 per poll, live and applied postings first). Simple code then
+compares the two, so scores are instant, free and repeatable. Every AI suggestion is
+listed under **What the AI understood** on Profile and can be removed; without a
+model, built-in rules are used.
+
 **Dev mode** (switch in the top bar) shows how everything works, for demos:
 the posting page gains a live agent inspector (each node, tool call, AI
 request and critic check), Profile shows the collector pipeline stage by stage,

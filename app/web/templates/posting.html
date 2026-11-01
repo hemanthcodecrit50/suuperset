@@ -9,11 +9,11 @@
     {{ mark(record.company_name, 'large') }}
     <div class="text">
       <h1>{{ record.title }}</h1>
-      <p class="role-sub">{{ record.company_name or 'Unknown company' }}{% if location %} · {{ location }}{% endif %}</p>
+      <p class="role-sub">{{ record.company_name|company or 'Unknown company' }}{% if location %} · {{ location }}{% endif %}</p>
     </div>
     <div class="actions">
       {{ status_select(record.id, status, statuses) }}
-      <a class="button secondary" href="{{ portal_url }}" target="_blank" rel="noopener">Open in Superset ↗</a>
+      <a class="button secondary" href="{{ portal_url|safe_url }}" target="_blank" rel="noopener">Open in Superset ↗</a>
     </div>
   </div>
   <dl class="facts">
@@ -53,6 +53,19 @@
         <div class="empty"><strong>No brief yet.</strong>Run the agent to get a verdict, key facts, risks and resume advice.</div>
       {% endif %}
 
+      {% if record.attachments %}
+      <div class="dev-section" style="margin-top: 28px">
+        <span class="eyebrow" style="display: block; margin-bottom: 10px">Attached documents</span>
+        <ul class="related">
+          {% for file in record.attachments %}
+          <li><span>{{ file.name }}</span>
+            {% if file.name in read_documents %}<span class="tag green">Read by the agent</span>{% else %}<span class="tag">Not a JD</span>{% endif %}</li>
+          {% endfor %}
+        </ul>
+        <p class="faint small" style="margin-top: 6px">Open them in Superset. Only files that look like a job description are read.</p>
+      </div>
+      {% endif %}
+
       {% if record.description %}
       <details class="jd">
         <summary>Job description</summary>
@@ -60,6 +73,24 @@
       </details>
       {% endif %}
     </section>
+
+    {% if related %}
+    <section class="panel" style="margin-top: 24px">
+      <div class="panel-head">
+        <div><h2>Related updates</h2><p class="muted small">Notices from your placement cell that mention {{ record.company_name|company }}.</p></div>
+        <a class="button quiet small" href="/updates?view=all">All updates</a>
+      </div>
+      <ul class="related">
+        {% for notice in related %}
+        <li>
+          <span><a href="/updates?view=all#notice-{{ notice.id }}"><strong>{{ notice.title }}</strong></a>
+            {% for event in (notice.raw or {}).get('schedule') or [] %}<div class="role-sub">{{ event.what }} · {{ event.date }}{% if event.time %} · {{ event.time }}{% endif %}</div>{% endfor %}</span>
+          <span class="faint small nowrap">{{ notice.published_at|relative }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
   </div>
 
   <aside class="stack">

@@ -4,31 +4,33 @@
 <div class="page-head">
   <div>
     <h1>Applications</h1>
-    <p class="lede">Everything you are tracking here, soonest deadline first. This list is yours; Superset is never changed.</p>
+    <p class="lede">Jobs you applied to on Superset, plus anything you track here. Changing a status here never changes Superset.</p>
   </div>
 </div>
 {% if rows %}
 <table class="table boxed">
-  <thead><tr><th>Role and company</th><th>Deadline</th><th class="num">Status</th></tr></thead>
+  <thead><tr><th>Role and company</th><th>Deadline</th><th>Superset</th><th class="num">Your status</th></tr></thead>
   <tbody>
-  {% for application, opportunity, days_left in rows %}
-    <tr class="row-link" data-href="/postings/{{ opportunity.id }}">
+  {% for row in rows %}
+    <tr class="row-link" data-href="/postings/{{ row.opportunity.id }}">
       <td>
         <div class="role">
-          {{ mark(opportunity.company_name) }}
+          {{ mark(row.opportunity.company_name) }}
           <div>
-            <div class="role-title"><a href="/postings/{{ opportunity.id }}">{{ opportunity.title }}</a></div>
-            <div class="role-sub">{{ opportunity.company_name }}</div>
+            <div class="role-title"><a href="/postings/{{ row.opportunity.id }}">{{ row.opportunity.title }}</a></div>
+            <div class="role-sub">{{ row.opportunity.company_name|company }}</div>
           </div>
         </div>
       </td>
-      <td>{{ deadline(days_left, opportunity.deadline) }}</td>
-      <td class="num">{{ status_select(opportunity.id, application.status, statuses) }}</td>
+      <td>{{ deadline(row.days_left, row.opportunity.deadline) }}</td>
+      <td>{% if row.is_applied_on_superset %}<span class="tag green">Applied</span>{% else %}<span class="faint">—</span>{% endif %}</td>
+      <td class="num">{{ status_select(row.opportunity.id, row.status, statuses) }}</td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
+<div class="table-foot"><span>{{ rows|length }} application{{ '' if rows|length == 1 else 's' }} · jobs you applied to on Superset are added automatically</span></div>
 {% else %}
-<div class="empty"><strong>You are not tracking anything yet.</strong>Set a status on any posting and it will appear here.</div>
+<div class="empty"><strong>No applications yet.</strong>Jobs you apply to on Superset appear here after the next poll, and you can track any posting by setting its status.</div>
 {% endif %}
 {% endblock %}

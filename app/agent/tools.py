@@ -46,6 +46,7 @@ from app.services import (
     search,
 )
 from app.services.applications import find_opportunity
+from app.services.fit import jd_text_for
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,7 @@ def _opportunity_payload(record: Opportunity) -> dict[str, Any]:
         "eligible": record.eligible,
         "application_status": raw.get("application_status") or raw.get("job_profile_status"),
         "parsed_jd": parsed or None,
+        "jd_insight": raw.get("jd_insight"),
     }
 
 
@@ -232,28 +234,6 @@ def _tool_get_opportunity(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
     return payload
 
 
-def _jd_text_for(record: Opportunity) -> str:
-    parts = [
-        f"Title: {record.title}",
-        f"Company: {record.company_name or 'unknown'}",
-    ]
-    if record.location:
-        parts.append(f"Location: {record.location}")
-    if record.work_type:
-        parts.append(f"Work Type: {record.work_type}")
-    if record.compensation:
-        parts.append(f"Compensation: {record.compensation}")
-    if record.eligibility:
-        parts.append(f"Eligibility: {record.eligibility}")
-    if record.skills:
-        parts.append("Required skills: " + ", ".join(str(s) for s in record.skills))
-    if record.deadline:
-        parts.append(f"Application Deadline: {record.deadline.date().isoformat()}")
-    if record.description:
-        parts.append("\n" + record.description)
-    return "\n".join(parts)
-
-
 def _tool_parse_jd(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     text = args.get("text")
     opportunity = None
@@ -266,7 +246,7 @@ def _tool_parse_jd(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         opportunity = session.get(Opportunity, int(opportunity_id))
         if opportunity is None:
             raise ToolError(f"No opportunity with id {opportunity_id}.")
-        text = _jd_text_for(opportunity)
+        text = jd_text_for(opportunity)
 
     parsed = jd_parser.parse_jd(
         str(text),

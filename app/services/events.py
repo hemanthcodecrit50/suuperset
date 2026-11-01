@@ -79,8 +79,9 @@ def read_events(
     limit: int = 400,
     run_id: str | None = None,
     source: str | None = None,
+    name: str | None = None,
 ) -> list[Event]:
-    """Newest events first, optionally only one run or one source."""
+    """Newest events first, optionally only one run, source or event name."""
     if not path.exists():
         return []
     events: list[Event] = []
@@ -91,6 +92,8 @@ def read_events(
         if run_id is not None and event.run_id != run_id:
             continue
         if source is not None and event.source != source:
+            continue
+        if name is not None and event.name != name:
             continue
         events.append(event)
         if len(events) >= limit:

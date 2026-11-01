@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 KEY_MATCHING = "matching"
 KEY_NOTIFICATIONS = "notifications"
+KEY_PROFILE_INSIGHT = "profile_insight"
 
 # Fields the user can set under `matching`.
 MATCHING_FIELDS = (
@@ -49,6 +50,8 @@ class Preferences:
 
     matching: dict[str, Any] = field(default_factory=dict)
     notifications: dict[str, Any] = field(default_factory=dict)
+    # What the AI understood about the profile; the student can remove any part of it
+    insight: dict[str, Any] = field(default_factory=dict)
 
     # -- convenience accessors used by poll / reminders ----------------
     @property
@@ -95,7 +98,8 @@ class Preferences:
             return False
         needle = company_name.strip().lower()
         return any(
-            needle in followed or followed in needle for followed in self.followed_companies
+            needle in followed or followed in needle
+            for followed in self.followed_companies
         )
 
     def weights(self) -> dict[str, float]:
@@ -107,6 +111,7 @@ class Preferences:
         """Shape accepted by :func:`app.services.matching.score_opportunity`."""
         payload = dict(self.matching)
         payload.setdefault("weights", self.weights())
+        payload["insight"] = active_insight(self.insight)
         return payload
 
     def is_configured(self) -> bool:
@@ -123,7 +128,46 @@ def load_preferences(session: Session) -> Preferences:
     return Preferences(
         matching=_read(session, KEY_MATCHING),
         notifications=_read(session, KEY_NOTIFICATIONS),
+        insight=_read(session, KEY_PROFILE_INSIGHT),
     )
+
+
+def load_setting(session: Session, key: str) -> dict[str, Any]:
+    """One stored settings blob, or an empty dict."""
+    return _read(session, key)
+
+
+def save_setting(session: Session, key: str, value: dict[str, Any]) -> None:
+    """Replace one stored settings blob."""
+    _write(session, key, value)
+
+
+def active_insight(insight: dict[str, Any]) -> dict[str, Any]:
+    """The profile insight minus everything the student chose to remove."""
+    removed = set(insight.get("removed") or [])
+    if not insight:
+        return {}
+    return {
+        "implied_skills": {
+            skill: [item for item in implied if f"skill:{item}" not in removed]
+            for skill, implied in (insight.get("implied_skills") or {}).items()
+        },
+        "places": {
+            place: [city for city in cities if f"place:{city}" not in removed]
+            for place, cities in (insight.get("places") or {}).items()
+        },
+        "anywhere": bool(insight.get("anywhere")) and "anywhere" not in removed,
+        "role_fits": [
+            role
+            for role in insight.get("role_fits") or []
+            if f"role:{role}" not in removed
+        ],
+        "role_misfits": [
+            role
+            for role in insight.get("role_misfits") or []
+            if f"misfit:{role}" not in removed
+        ],
+    }
 
 
 def _write(session: Session, key: str, value: dict[str, Any]) -> None:

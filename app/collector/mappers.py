@@ -11,6 +11,11 @@ from collections.abc import Callable
 from typing import Any
 
 from app.collector.api import SupersetApi, epoch_ms_to_datetime, html_to_text
+from app.collector.documents import (
+    MAX_DOCUMENTS_PER_POSTING,
+    document_text,
+    is_likely_jd,
+)
 from app.collector.job_profiles import RawOpportunity
 from app.collector.notifications import RawAnnouncement
 
@@ -130,7 +135,7 @@ def map_job_profile(item: dict, detail: dict | None = None) -> RawOpportunity:
         deadline=epoch_ms_to_datetime(item.get("jobProfileApplicationDeadline")),
         apply_url=None,
         description=description,
-        attachments=[],
+        attachments=_attachments(profile) if detail else [],
         raw={
             "job_profile_status": item.get("jobProfileStatus"),
             "application_status": item.get("jobApplicationStatus"),
@@ -146,11 +151,46 @@ def map_job_profile(item: dict, detail: dict | None = None) -> RawOpportunity:
             "no_of_vacancies": (profile.get("noOfVacancies") if detail else None),
             "resume_mandatory": (profile.get("resumeMandatory") if detail else None),
             "source": "api",
+            # Only set when details were read, so a skipped fetch keeps the earlier value
+            **({"documents_checked": True} if detail else {}),
+        },
+    )
+
+
+def _attachments(profile: dict) -> list[dict]:
+    return [
+        {"name": document.get("name"), "identifier": document.get("identifier")}
+        for document in profile.get("documents") or []
+        if document.get("name") and document.get("identifier")
+    ]
+
+
+def map_notice(item: dict, base_url: str) -> RawAnnouncement:
+    """Map one full notice from the notice board to RawAnnouncement."""
+    identifier = item.get("identifier") or ""
+    return RawAnnouncement(
+        external_id=f"notice:{identifier}",
+        title=(item.get("title") or "(untitled notice)")[:300],
+        body=html_to_text(item.get("content")),
+        url=f"{base_url.rstrip('/')}{_NOTICE_PATH}/{identifier}",
+        category=NOTICE_CATEGORY,
+        published_at=epoch_ms_to_datetime(item.get("publishedAt") or item.get("lastModifiedOn")),
+        posted_by=item.get("lastModifiedByUserName"),
+        raw={
+            "notice_uuid": identifier,
+            "attachments": [
+                {"name": attachment.get("name"), "identifier": attachment.get("identifier")}
+                for attachment in item.get("attachments") or []
+                if isinstance(attachment, dict)
+            ],
+            "posted_by": item.get("lastModifiedByUserName"),
+            "source": "api",
         },
     )
 
 
 _NOTICE_PATH = "/students/notices"
+NOTICE_CATEGORY = "NOTICE"
 _JOB_PATH = "/students/jobprofiles"
 
 
@@ -197,8 +237,11 @@ async def collect_announcements_api(
     """Collect announcements from the notifications API."""
     items = await api.notifications(max_pages=max_pages)
     results = [map_notification(item, api.base_url) for item in items]
-    logger.info("Collected %d announcements via API", len(results))
-    return results
+    notices = [map_notice(item, api.base_url) for item in await api.notices()]
+    logger.info(
+        "Collected %d notifications and %d full notices via API", len(results), len(notices)
+    )
+    return results + notices
 
 
 async def collect_job_profiles_api(
@@ -242,6 +285,8 @@ async def collect_job_profiles_api(
                 if detail is not None:
                     fetched += 1
         mapped = map_job_profile(item, detail)
+        if detail is not None:
+            mapped.raw["jd_documents"] = await _read_jd_documents(api, mapped)
         mapped.raw["detail_fetched"] = detail is not None
         results.append(mapped)
 
@@ -251,3 +296,14 @@ async def collect_job_profiles_api(
         fetched,
     )
     return results
+
+
+async def _read_jd_documents(api: SupersetApi, mapped: RawOpportunity) -> list[dict]:
+    documents: list[dict] = []
+    likely = [item for item in mapped.attachments if is_likely_jd(item["name"])]
+    for attachment in likely[:MAX_DOCUMENTS_PER_POSTING]:
+        content = await api.download_document(mapped.external_id, attachment["identifier"])
+        text = document_text(attachment["name"], content) if content else ""
+        if text:
+            documents.append({"name": attachment["name"], "text": text})
+    return documents

@@ -38,7 +38,11 @@ def source_factory():
 
 
 @pytest.fixture(autouse=True)
-def isolated_llm_budget(tmp_path, monkeypatch):
-    """Keep tests from spending or waiting on the real model request budget."""
+def isolated_from_real_services(tmp_path, monkeypatch):
+    """Keep tests away from the real AI provider, request budget and event log in .env."""
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("OPENAI_BASE_URL", "")
     monkeypatch.setenv("LLM_USAGE_FILE", str(tmp_path / "llm_usage.json"))
     monkeypatch.setenv("LLM_MIN_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("EVENTS_FILE", str(tmp_path / "events.jsonl"))
+    monkeypatch.setenv("POLL_PROGRESS_FILE", str(tmp_path / "poll_progress.json"))

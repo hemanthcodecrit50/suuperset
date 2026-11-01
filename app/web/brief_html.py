@@ -22,6 +22,8 @@ SOURCE_LINK_PATTERN = re.compile(
     r'\(?<a href="(https?://[^"]+)">source</a>\)?', re.IGNORECASE
 )
 LINK_PATTERN = re.compile(r"\]\((https?://[^)\s]+)\)")
+# Any link or image address that is not a web address (javascript:, data:, ...)
+UNSAFE_ADDRESS_PATTERN = re.compile(r'\b(href|src)="(?!https?://)[^"]*"', re.IGNORECASE)
 LEDGER_ROW_PATTERN = re.compile(
     r"<li>(?:<strong>)?([^:<]{2,40}):(?:</strong>)?\s*(.*?)</li>", re.DOTALL
 )
@@ -49,6 +51,7 @@ def brief_sources(text: str) -> list[Source]:
 def brief_to_html(text: str) -> str:
     """Render the brief safely; scraped web text in it must never become live HTML."""
     body = markdown.markdown(html.escape(text or "", quote=False), extensions=["extra"])
+    body = UNSAFE_ADDRESS_PATTERN.sub(r'\1="#"', body)
     numbers = {source.url: source.number for source in brief_sources(text)}
     body = SOURCE_LINK_PATTERN.sub(lambda match: _citation(match, numbers), body)
     return "".join(_section_html(part) for part in re.split(r"(?=<h3>)", body))

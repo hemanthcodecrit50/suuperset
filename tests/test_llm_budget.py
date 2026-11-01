@@ -39,3 +39,11 @@ def test_requests_are_spaced_by_the_minimum_interval(tmp_path, monkeypatch):
     path.write_text(json.dumps({"day": _quota_day(), "count": 0, "last_call": 998.0}))
     LlmBudget(path, daily_limit=5, min_interval_seconds=6.5).acquire()
     assert sleeps == [4.5]
+
+
+def test_a_damaged_budget_file_counts_as_unused(tmp_path):
+    from app.services.llm_budget import LlmBudget
+
+    path = tmp_path / "budget.json"
+    path.write_text("{not json")
+    assert LlmBudget(path, daily_limit=5, min_interval_seconds=0).usage().used == 0

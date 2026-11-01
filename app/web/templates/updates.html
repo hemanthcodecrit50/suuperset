@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Updates · Placement Copilot{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Updates</h1>
+    <p class="lede">Notices from your placement cell, with the ones about companies you applied to first.</p>
+  </div>
+</div>
+
+{% if upcoming %}
+<section class="panel" style="margin-bottom: 28px">
+  <div class="panel-head">
+    <div><h2>Upcoming</h2><p class="muted small">Dates read from notices about your applications. Each one was checked against the notice text.</p></div>
+  </div>
+  <table class="table boxed">
+    <thead><tr><th>When</th><th>What</th><th>Company</th><th>Where</th></tr></thead>
+    <tbody>
+    {% for event in upcoming %}
+      <tr>
+        <td class="nowrap"><strong>{{ event.when.strftime('%a %d %b') }}</strong>{% if event.time %}<div class="role-sub">{{ event.time }}</div>{% endif %}</td>
+        <td>{{ event.what }}{% if event.is_tentative %} <span class="tag">Tentative</span>{% endif %}{% if event.notes %}<div class="role-sub">{{ event.notes }}</div>{% endif %}{% if event.schedule_note %}<div class="role-sub">{{ event.schedule_note }}</div>{% endif %}<div class="role-sub"><a href="#notice-{{ event.notice.id }}">from “{{ event.notice.title|truncate(60) }}”</a></div></td>
+        <td class="muted">{{ event.company|company or '—' }}</td>
+        <td class="muted">{{ event.venue or '—' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<nav class="tabs" aria-label="Filter updates">
+  <a href="/updates?view=applied" class="{{ 'active' if view == 'applied' }}">About your applications</a>
+  <a href="/updates?view=all" class="{{ 'active' if view == 'all' }}">All notices</a>
+  <a href="/updates?view=jobs" class="{{ 'active' if view == 'jobs' }}">Job alerts</a>
+</nav>
+
+{% if view == 'jobs' %}
+  {% if job_alerts %}
+  <table class="table">
+    <tbody>
+    {% for alert in job_alerts %}
+      <tr>
+        <td class="nowrap faint small" style="width: 130px">{{ alert.published_at|relative }}</td>
+        <td>{{ alert.body or alert.title }}</td>
+        <td class="num">{% if alert.url %}<a class="button quiet small" href="{{ alert.url|safe_url }}" target="_blank" rel="noopener">Open ↗</a>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="empty" style="margin-top: 20px"><strong>No job alerts yet.</strong>Run a poll from Profile.</div>{% endif %}
+{% elif feed %}
+<div class="notice-list">
+  {% for item in feed %}
+  <details class="notice-item" id="notice-{{ item.record.id }}" {{ 'open' if loop.first and view == 'applied' }}>
+    <summary>
+      <span class="notice-date faint small">{{ item.record.published_at.strftime('%d %b') if item.record.published_at else '' }}</span>
+      <span class="notice-title">{{ item.record.title }}</span>
+      <span class="notice-tags">
+        {% for company in item.companies %}<span class="tag accent">{{ company|company }}</span>{% endfor %}
+        {% if item.schedule %}<span class="tag green">{{ item.schedule|length }} date{{ '' if item.schedule|length == 1 else 's' }}</span>{% endif %}
+        {% if item.attachments %}<span class="tag">{{ item.attachments|length }} file{{ '' if item.attachments|length == 1 else 's' }}</span>{% endif %}
+      </span>
+    </summary>
+    <div class="notice-body">
+      {% if item.schedule %}
+      <ul class="kv" style="margin-bottom: 14px">
+        {% for event in item.schedule %}<li><span class="key">{% if event.company and item.companies|length > 1 %}{{ event.company|company }} · {% endif %}{{ event.what }}{% if event.tentative %} <span class="tag">Tentative</span>{% endif %}</span><span class="value">{{ event.date }}{% if event.time %} · {{ event.time }}{% endif %}{% if event.venue %} · {{ event.venue }}{% endif %}</span></li>{% endfor %}
+      </ul>
+      {% endif %}
+      <div class="notice-text">{% if item.record.body %}{{ item.record.body|notice_html }}{% else %}No text in this notice.{% endif %}</div>
+      <div class="actions" style="margin-top: 14px">
+        {% for file in item.attachments %}<span class="tag">{{ file.name }}</span>{% endfor %}
+        {% if item.record.url %}<a class="button secondary small" href="{{ item.record.url|safe_url }}" target="_blank" rel="noopener">Open in Superset ↗</a>{% endif %}
+      </div>
+    </div>
+  </details>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty" style="margin-top: 20px">
+  {% if view == 'applied' %}<strong>No notices about your applications.</strong>{% if companies %}Watching {{ companies|length }} compan{{ 'y' if companies|length == 1 else 'ies' }} you applied to.{% else %}You haven't applied anywhere yet.{% endif %} See <a href="/updates?view=all">all notices</a>.
+  {% else %}<strong>No notices yet.</strong>Run a poll from Profile to collect them.{% endif %}
+</div>
+{% endif %}
+{% endblock %}

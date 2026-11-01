@@ -26,7 +26,7 @@
       <div><span class="eyebrow">AI model</span><h2 style="margin-top: 4px">{{ llm.settings.research_model if llm.configured else 'Off' }}</h2></div>
     </div>
     {% if llm.configured %}{% set usage = llm.budget.usage() %}
-      <div class="meter"><span style="width: {{ (usage.used / usage.limit * 100) if usage.limit else 100 }}%"></span></div>
+      <div class="meter"><span style="width: {{ [usage.used / usage.limit * 100, 100]|min if usage.limit else 100 }}%"></span></div>
       <p class="muted small"><strong style="color: var(--ink)">{{ usage.used }} of {{ usage.limit }}</strong> requests used today, {{ usage.remaining }} left. Resets at midnight Pacific time. If the cap is reached, briefs still work without the model.</p>
     {% else %}
       <p class="muted small">No model key is set. Briefs still work; add a free key to <code>.env</code> for resume bullets and written verdicts.</p>
@@ -49,10 +49,31 @@
 <div style="margin-top: 24px">{% include "_collector.html" %}</div>
 {% endif %}
 
+{% if imported is not none %}
+<div class="notice good" style="margin-top: 24px">Profile updated from your resume{% if imported %} · {{ imported }} project{{ '' if imported == 1 else 's' }} added to your portfolio{% endif %}.</div>
+{% endif %}
+{% if saved %}
+<div class="notice good" style="margin-top: 24px">Profile saved. Fit scores were updated.</div>
+{% endif %}
+{% for error in [resume_error, form_error] if error %}
+<div class="notice bad" style="margin-top: 24px">{{ error }}</div>
+{% endfor %}
+
 <section class="panel" style="margin-top: 24px">
   <div class="panel-head">
     <div><h2>About you</h2><p class="muted small">Used for fit scores and eligibility. Separate items with commas.</p></div>
   </div>
+  <form class="import" method="post" action="/profile/resume" enctype="multipart/form-data"
+        onsubmit="this.querySelector('button').textContent = 'Reading your resume…'; this.querySelector('button').disabled = true">
+    <div>
+      <strong>Fill this in from your resume</strong>
+      <p class="muted small">Upload a PDF and review what was found before anything is saved. The file is read on this computer and not kept{% if llm.configured %}; its text is sent once to your AI model ({{ llm.settings.research_model }}) to structure it{% endif %}.</p>
+    </div>
+    <div class="actions">
+      <input type="file" name="resume" accept="application/pdf,.pdf" required aria-label="Resume PDF">
+      <button class="button secondary">Read resume</button>
+    </div>
+  </form>
   <form method="post" action="/profile">
     <div class="form-grid three">
       <label>Degree <input name="degree" value="{{ matching.get('degree') or '' }}" placeholder="e.g. B.Tech"></label>
@@ -68,6 +89,58 @@
   </form>
 </section>
 
+<section class="panel" id="understanding" style="margin-top: 24px">
+  <div class="panel-head">
+    <div>
+      <h2>What the AI understood</h2>
+      <p class="muted small">Read from your profile and projects, so matching works for your field. These are suggestions, not your skills: remove anything wrong and scores update at once.{% if insight.generated_at %} Last read {{ insight.generated_at[:10] }} by {{ insight.model }}.{% endif %}</p>
+    </div>
+    {% if llm.configured %}<form method="post" action="/profile/insight/refresh" class="inline"><button class="button secondary small">Re-read profile</button></form>{% endif %}
+  </div>
+  {% set removed = insight.get('removed') or [] %}
+  {% if not insight.get('source_hash') and not insight.get('implied_skills') %}
+    <p class="faint small">{% if llm.configured %}Not read yet. Save your profile or click Re-read profile.{% else %}Needs an AI model; matching uses built-in rules for now.{% endif %}</p>
+  {% else %}
+  <div class="insight-grid">
+    <div>
+      <span class="eyebrow">Also counts as</span>
+      {% for listed, extras in (insight.get('implied_skills') or {}).items() %}
+        {% for extra in extras if ('skill:' ~ extra) not in removed %}
+        <form method="post" action="/profile/insight/remove" class="chip-form">
+          <input type="hidden" name="item" value="skill:{{ extra }}">
+          <span class="chip-item">{{ listed }} → <strong>{{ extra }}</strong><button title="Don't use this" aria-label="Remove {{ extra }}">×</button></span>
+        </form>
+        {% endfor %}
+      {% else %}<p class="faint small">Nothing extra.</p>{% endfor %}
+    </div>
+    <div>
+      <span class="eyebrow">Places included</span>
+      {% if insight.get('anywhere') and 'anywhere' not in removed %}<form method="post" action="/profile/insight/remove" class="chip-form"><input type="hidden" name="item" value="anywhere"><span class="chip-item">Open to any location<button aria-label="Remove">×</button></span></form>{% endif %}
+      {% for place, cities in (insight.get('places') or {}).items() %}
+        {% for city in cities if ('place:' ~ city) not in removed %}
+        <form method="post" action="/profile/insight/remove" class="chip-form">
+          <input type="hidden" name="item" value="place:{{ city }}">
+          <span class="chip-item">{{ place }} → <strong>{{ city }}</strong><button aria-label="Remove {{ city }}">×</button></span>
+        </form>
+        {% endfor %}
+      {% else %}{% if not insight.get('anywhere') %}<p class="faint small">Only the places you listed.</p>{% endif %}{% endfor %}
+    </div>
+    <div>
+      <span class="eyebrow">Roles that suit you</span>
+      {% for role in insight.get('role_fits') or [] if ('role:' ~ role) not in removed %}
+        <form method="post" action="/profile/insight/remove" class="chip-form"><input type="hidden" name="item" value="role:{{ role }}"><span class="chip-item">{{ role }}<button aria-label="Remove {{ role }}">×</button></span></form>
+      {% else %}<p class="faint small">None suggested.</p>{% endfor %}
+    </div>
+    <div>
+      <span class="eyebrow">Roles outside your area</span>
+      {% for role in insight.get('role_misfits') or [] if ('misfit:' ~ role) not in removed %}
+        <form method="post" action="/profile/insight/remove" class="chip-form"><input type="hidden" name="item" value="misfit:{{ role }}"><span class="chip-item">{{ role }}<button aria-label="Remove {{ role }}">×</button></span></form>
+      {% else %}<p class="faint small">None suggested.</p>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+
 <section class="panel" id="portfolio" style="margin-top: 24px">
   <div class="panel-head">
     <div><h2>Portfolio</h2><p class="muted small">Real projects only. Resume advice never goes beyond what these records show.</p></div>
@@ -76,13 +149,14 @@
   <div class="project">
     <div>
       <strong>{{ project.name }}</strong> <span class="tag" style="margin-left: 6px">{{ project.status|pretty }}</span>
-      <div class="role-sub">{{ (project.technologies or [])|join(', ') or 'No technologies listed' }}{% if project.evidence_url %} · <a href="{{ project.evidence_url }}" target="_blank" rel="noopener">evidence ↗</a>{% endif %}</div>
+      <div class="role-sub">{{ (project.technologies or [])|join(', ') or 'No technologies listed' }}{% if project.evidence_url %} · <a href="{{ project.evidence_url|safe_url }}" target="_blank" rel="noopener">evidence ↗</a>{% endif %}</div>
     </div>
     <form method="post" action="/portfolio/{{ project.id }}/delete" class="inline"><button class="button quiet small">Remove</button></form>
   </div>
   {% else %}
   <p class="faint small" style="padding: 8px 0 4px">No projects yet. Add your first one below.</p>
   {% endfor %}
+  {% if project_error %}<div class="notice bad" style="margin-top: 20px">{{ project_error }}</div>{% endif %}
   <form method="post" action="/portfolio" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line)">
     <div class="form-grid">
       <label>Project name <input name="name" required placeholder="e.g. Order service"></label>

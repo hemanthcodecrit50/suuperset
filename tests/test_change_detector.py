@@ -72,3 +72,32 @@ def test_enqueue_alert_deduplicates(session, source_factory):
     )
     assert enqueue_alert(session, **kwargs) is not None
     assert enqueue_alert(session, **kwargs) is None
+
+
+def test_application_status_change_is_saved_without_a_content_change(session):
+    from app.collector.change_detector import upsert_opportunity
+
+    data = {"external_id": "job-9", "title": "Intern", "raw": {"application_status": "YET_TO_APPLY"}}
+    record, _ = upsert_opportunity(session, data)
+    upsert_opportunity(session, {**data, "raw": {"application_status": "APPLIED"}})
+    assert record.raw["application_status"] == "APPLIED"
+
+
+def test_stored_parsed_jd_survives_a_later_poll(session):
+    from app.collector.change_detector import upsert_opportunity
+
+    data = {"external_id": "job-9", "title": "Intern", "raw": {"application_status": "YET_TO_APPLY"}}
+    record, _ = upsert_opportunity(session, data)
+    record.raw = {**record.raw, "parsed_jd": {"skills": ["Python"]}}
+    upsert_opportunity(session, {**data, "title": "Intern (updated)"})
+    assert record.raw["parsed_jd"] == {"skills": ["Python"]}
+
+
+def test_known_attachments_are_kept_when_a_poll_skips_details(session):
+    from app.collector.change_detector import upsert_opportunity
+
+    files = [{"name": "JD.pdf", "identifier": "doc-1"}]
+    data = {"external_id": "job-9", "title": "Intern", "raw": {}, "attachments": files}
+    record, _ = upsert_opportunity(session, data)
+    upsert_opportunity(session, {**data, "attachments": []})
+    assert record.attachments == files

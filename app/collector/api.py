@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import html
 import json
 import logging
 import re
@@ -61,7 +62,7 @@ class SupersetApi:
     @classmethod
     async def from_context(
         cls, context: Any, settings: Settings | None = None
-    ) -> "SupersetApi":
+    ) -> SupersetApi:
         """Build a client, capturing auth headers from a loaded page."""
         settings = settings or get_settings()
         base = settings.superset_base_url.rstrip("/")
@@ -175,6 +176,42 @@ class SupersetApi:
             f"{API_PREFIX}/students/{self.user_uuid}/job_profiles/{job_profile_id}"
         )
 
+    async def notices(self, max_pages: int = 10, page_size: int = 50) -> list[dict]:
+        """Full notices (title, HTML body, attachments) from the student notice board."""
+        if not self.user_uuid:
+            raise ApiError("user_uuid not resolved")
+        collected: list[dict] = []
+        for page_number in range(max_pages):
+            items = await self._get_optional(
+                f"{API_PREFIX}/students/{self.user_uuid}/notices",
+                params={"page": page_number, "size": page_size},
+            )
+            if not items:
+                break
+            collected.extend(items)
+            if len(items) < page_size:
+                break
+        return collected
+
+    async def download_document(self, job_profile_id: str, document_id: str) -> bytes | None:
+        """Download one file attached to a job profile, via the signed link the portal issues."""
+        if not self.user_uuid:
+            raise ApiError("user_uuid not resolved")
+        path = (
+            f"{API_PREFIX}/students/{self.user_uuid}/job_profiles/"
+            f"{job_profile_id}/documents/{document_id}/url"
+        )
+        response = await self.context.request.get(f"{self.base_url}{path}", headers=self.headers)
+        if response.status != 200:
+            logger.info("No download link for document %s (%d)", document_id, response.status)
+            return None
+        signed_url = _signed_url(await response.text())
+        if not signed_url:
+            return None
+        # The signed storage link carries its own authorisation, so send no portal headers
+        download = await self.context.request.get(signed_url)
+        return await download.body() if download.status == 200 else None
+
     async def notifications(self, max_pages: int = 20, page_size: int = 50) -> list[dict]:
         """All web notifications (announcements), oldest pages until empty.
 
@@ -203,6 +240,17 @@ class SupersetApi:
 
 # -- mapping helpers ----------------------------------------------------
 
+def _signed_url(body: str) -> str | None:
+    # The link endpoint may answer with a bare URL, a JSON string or a small JSON object
+    text = body.strip()
+    if text.startswith("{"):
+        data = json.loads(text)
+        text = str(data.get("url") or data.get("signedUrl") or data.get("downloadUrl") or "")
+    elif text.startswith('"'):
+        text = json.loads(text)
+    return text if text.startswith("https://") else None
+
+
 def epoch_ms_to_datetime(value: Any) -> dt.datetime | None:
     """Convert an epoch-milliseconds timestamp to an aware datetime."""
     if value in (None, "", 0):
@@ -213,7 +261,7 @@ def epoch_ms_to_datetime(value: Any) -> dt.datetime | None:
         return None
     if millis <= 0:
         return None
-    return dt.datetime.fromtimestamp(millis / 1000, tz=dt.timezone.utc)
+    return dt.datetime.fromtimestamp(millis / 1000, tz=dt.UTC)
 
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -223,15 +271,10 @@ def html_to_text(value: str | None) -> str:
     """Flatten the small amount of HTML the API returns into plain text."""
     if not value:
         return ""
-    text = re.sub(r"<(br|/p|/div|/li|/h[1-6])\s*/?>", "\n", value, flags=re.IGNORECASE)
-    text = _TAG_RE.sub("", text)
-    text = (
-        text.replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", '"')
-        .replace("&#39;", "'")
-    )
+    # Table cells and rows get separators, so a schedule table stays readable as text
+    text = re.sub(r"</t[dh]\s*>", " | ", value, flags=re.IGNORECASE)
+    text = re.sub(r"<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = html.unescape(_TAG_RE.sub("", text)).replace("\xa0", " ")
+    text = re.sub(r"\s*\|\s*$", "", text, flags=re.MULTILINE)
     lines = [" ".join(line.split()) for line in text.splitlines()]
     return "\n".join(line for line in lines if line)

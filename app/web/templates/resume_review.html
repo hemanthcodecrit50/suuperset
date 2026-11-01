@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Review resume · Placement Copilot{% endblock %}
+{% block content %}
+<a class="back" href="/profile">← Profile</a>
+<div class="page-head">
+  <div>
+    <h1>Review your resume details</h1>
+    <p class="lede">Check and edit what was found, then save. Fields marked <span class="found">from resume</span> were read from your PDF; the rest keep what you already had.</p>
+  </div>
+  <span class="tag {{ 'accent' if draft.used_ai else '' }}">{{ 'Structured by AI, checked against the PDF' if draft.used_ai else 'Read with rules on this computer' }}</span>
+</div>
+
+{% macro hint(value) -%}{% if value %} <span class="found small">from resume</span>{% endif %}{%- endmacro %}
+
+<form method="post" action="/profile/resume/apply">
+  <section class="panel">
+    <h2 style="margin-bottom: 16px">About you</h2>
+    <div class="form-grid three">
+      <label>Degree{{ hint(draft.degree) }}<input name="degree" value="{{ draft.degree or current.get('degree') or '' }}" placeholder="e.g. B.Tech"></label>
+      <label>CGPA{{ hint(draft.cgpa is not none) }}<input name="cgpa" value="{{ draft.cgpa if draft.cgpa is not none else (current.get('cgpa') or '') }}" inputmode="decimal" placeholder="e.g. 8.2"></label>
+      <label>Graduation year{{ hint(draft.graduation_year) }}<input name="graduation_year" value="{{ draft.graduation_year or current.get('graduation_year') or '' }}" inputmode="numeric" placeholder="e.g. 2027"></label>
+      {% for name, label in [('skills', 'Skills'), ('technologies', 'Technologies'), ('interests', 'Interests'), ('locations', 'Preferred locations')] %}
+      <label class="{{ 'full' if name in ('skills', 'technologies') }}">{{ label }}{{ hint(draft[name]) }}
+        <input name="{{ name }}" value="{{ (draft[name] or current.get(name) or [])|join(', ') }}">
+      </label>
+      {% endfor %}
+      <input type="hidden" name="companies" value="{{ (current.get('companies') or [])|join(', ') }}">
+    </div>
+  </section>
+
+  <section class="panel" style="margin-top: 24px">
+    <div class="panel-head">
+      <div><h2>Projects found</h2><p class="muted small">Ticked projects are added to your portfolio. Resume advice only ever uses these real projects.</p></div>
+    </div>
+    <input type="hidden" name="project_count" value="{{ draft.projects|length }}">
+    {% for project in draft.projects %}
+    <div class="draft">
+      <label class="draft-head"><input type="checkbox" name="project-{{ loop.index0 }}-include" value="1" checked>Add to portfolio</label>
+      <div class="form-grid">
+        <label>Project name <input name="project-{{ loop.index0 }}-name" value="{{ project.name }}" required></label>
+        <label>Technologies <input name="project-{{ loop.index0 }}-technologies" value="{{ project.technologies|join(', ') }}"></label>
+        <label class="full">What it does <input name="project-{{ loop.index0 }}-description" value="{{ project.description }}"></label>
+        <label class="full">Evidence link <input name="project-{{ loop.index0 }}-link" type="url" value="{{ project.link or '' }}" placeholder="https://github.com/..."></label>
+      </div>
+    </div>
+    {% else %}
+    <p class="faint small">No projects were found{% if not draft.used_ai %} (reading projects needs the AI model){% endif %}. You can add them on your Profile.</p>
+    {% endfor %}
+  </section>
+
+  {% if draft.dropped %}
+  <details class="panel" style="margin-top: 24px">
+    <summary style="cursor: pointer; font-weight: 600">{{ draft.dropped|length }} suggestion{{ '' if draft.dropped|length == 1 else 's' }} left out because they are not in your resume</summary>
+    <p class="muted small" style="margin-top: 10px">The AI suggested these, but they could not be found in the PDF text, so they were not used: {{ draft.dropped|join(', ') }}.</p>
+  </details>
+  {% endif %}
+
+  <div class="form-actions" style="gap: 10px">
+    <a class="button quiet" href="/profile">Cancel</a>
+    <button class="button">Save to profile</button>
+  </div>
+</form>
+{% endblock %}
