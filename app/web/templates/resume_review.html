@@ -16,9 +16,16 @@
   <section class="panel">
     <h2 style="margin-bottom: 16px">About you</h2>
     <div class="form-grid three">
-      <label>Degree{{ hint(draft.degree) }}<input name="degree" value="{{ draft.degree or current.get('degree') or '' }}" placeholder="e.g. B.Tech"></label>
+      <label>Degree{{ hint(draft.degree) }}<input name="degree" value="{{ draft.degree or current.get('degree') or '' }}" placeholder="e.g. B.E."></label>
       <label>CGPA{{ hint(draft.cgpa is not none) }}<input name="cgpa" value="{{ draft.cgpa if draft.cgpa is not none else (current.get('cgpa') or '') }}" inputmode="decimal" placeholder="e.g. 8.2"></label>
       <label>Graduation year{{ hint(draft.graduation_year) }}<input name="graduation_year" value="{{ draft.graduation_year or current.get('graduation_year') or '' }}" inputmode="numeric" placeholder="e.g. 2027"></label>
+      {% set branch = draft.branch or current.get('branch') %}
+      <label class="full">Branch{{ hint(draft.branch) }}
+        <select name="branch">
+          <option value="">Not set</option>
+          {% for name in branches %}<option value="{{ name }}" {{ 'selected' if name == branch }}>{{ name }}</option>{% endfor %}
+        </select>
+      </label>
       {% for name, label in [('skills', 'Skills'), ('technologies', 'Technologies'), ('interests', 'Interests'), ('locations', 'Preferred locations')] %}
       <label class="{{ 'full' if name in ('skills', 'technologies') }}">{{ label }}{{ hint(draft[name]) }}
         <input name="{{ name }}" value="{{ (draft[name] or current.get(name) or [])|join(', ') }}">

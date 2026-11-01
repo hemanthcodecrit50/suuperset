@@ -56,7 +56,7 @@ def profile_source(session: Session) -> dict[str, Any]:
         for item in session.scalars(select(PortfolioItem))
         if item.status != "planned"
     ]
-    return {
+    source = {
         "skills": matching.get("skills") or [],
         "technologies": matching.get("technologies") or [],
         "interests": matching.get("interests") or [],
@@ -64,6 +64,10 @@ def profile_source(session: Session) -> dict[str, Any]:
         "degree": matching.get("degree"),
         "projects": projects,
     }
+    # Added only when set, so profiles saved before branches existed keep their hash
+    if matching.get("branch"):
+        source["branch"] = matching["branch"]
+    return source
 
 
 def refresh_profile_insight(session: Session, llm: LlmClient) -> bool:

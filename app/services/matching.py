@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.services.branches import branch_areas
 from app.services.jd_parser import find_technologies
 
 logger = logging.getLogger(__name__)
@@ -116,13 +117,49 @@ ROLE_DOMAINS: dict[str, tuple[str, ...]] = {
         "rtl",
         "verification",
     ),
-    "core": (
+    "mechanical": (
         "mechanical",
-        "civil",
-        "structures",
         "manufacturing",
-        "aerospace",
-        "chemical",
+        "production engineer",
+        "automotive",
+        "thermal",
+        "hvac",
+    ),
+    "civil": (
+        "civil",
+        "structural",
+        "structures",
+        "construction",
+        "site engineer",
+        "geotechnical",
+    ),
+    "aerospace": ("aerospace", "aeronautical", "avionics", "aircraft", "propulsion"),
+    "chemical": ("chemical", "process engineer", "petroleum", "refinery", "polymer"),
+    "electrical": (
+        "electrical",
+        "power systems",
+        "power electronics",
+        "substation",
+        "instrumentation",
+        "control systems",
+        "industrial automation",
+    ),
+    "biotech": (
+        "biotech",
+        "biotechnology",
+        "bioinformatics",
+        "pharma",
+        "life sciences",
+        "biomedical",
+        "medical devices",
+    ),
+    "industrial": (
+        "industrial engineer",
+        "supply chain",
+        "logistics",
+        "procurement",
+        "lean",
+        "six sigma",
     ),
     "business": (
         "sales",
@@ -181,22 +218,77 @@ DOMAIN_SKILLS: dict[str, tuple[str, ...]] = {
         "pcb design",
         "ltspice",
         "labview",
+        "digital electronics",
+        "signal processing",
+        "cadence",
+        "communication systems",
     ),
-    "core": (
+    "mechanical": (
         "autocad",
         "solidworks",
         "ansys",
         "catia",
         "creo",
         "fusion 360",
-        "simulink",
-        "revit",
-        "staad pro",
-        "etabs",
-        "plc",
         "thermodynamics",
         "fluid mechanics",
         "manufacturing",
+        "machine design",
+        "gd&t",
+    ),
+    "civil": (
+        "autocad",
+        "revit",
+        "staad pro",
+        "etabs",
+        "primavera",
+        "structural analysis",
+        "surveying",
+        "construction management",
+    ),
+    "aerospace": (
+        "aerodynamics",
+        "propulsion",
+        "cfd",
+        "ansys fluent",
+        "flight mechanics",
+        "catia",
+    ),
+    "chemical": (
+        "aspen plus",
+        "aspen hysys",
+        "dwsim",
+        "process engineering",
+        "mass transfer",
+        "heat transfer",
+    ),
+    "electrical": (
+        "simulink",
+        "plc",
+        "scada",
+        "etap",
+        "pscad",
+        "power systems",
+        "power electronics",
+        "electrical machines",
+        "control systems",
+        "instrumentation",
+    ),
+    "biotech": (
+        "molecular biology",
+        "bioinformatics",
+        "genetic engineering",
+        "biochemistry",
+        "biomedical instrumentation",
+        "cell culture",
+    ),
+    "industrial": (
+        "operations research",
+        "supply chain",
+        "lean manufacturing",
+        "six sigma",
+        "minitab",
+        "sap",
     ),
     "business": (
         "excel",
@@ -367,7 +459,8 @@ def score_opportunity(
     unknown: list[str] = []
 
     skills_part = _skills_part(opportunity, have, implied, reasons, unknown)
-    role_part = _role_part(opportunity, have, insight, reasons)
+    areas = _student_areas(have, preferences.get("branch"))
+    role_part = _role_part(opportunity, areas, insight, reasons)
     place_part = _place_and_pay_part(
         opportunity, preferences, insight, reasons, unknown
     )
@@ -499,9 +592,19 @@ def _with_parts(skills: list[str]) -> list[str]:
     )
 
 
+def _student_areas(have: list[str], branch: str | None) -> set[str]:
+    # The branch gives every student an area, even with few skills listed
+    by_skills = {
+        area
+        for area, skills in DOMAIN_SKILLS.items()
+        if sum(skill in have for skill in skills) >= 2
+    }
+    return by_skills | branch_areas(branch)
+
+
 def _role_part(
     opportunity: Mapping[str, Any],
-    have: list[str],
+    areas: set[str],
     insight: Mapping[str, Any],
     reasons: list[str],
 ) -> float:
@@ -519,7 +622,7 @@ def _role_part(
     ):
         reasons.append("Role is outside your usual area")
         return 0.3
-    return _role_part_by_rules(role_text, have, reasons)
+    return _role_part_by_rules(role_text, areas, reasons)
 
 
 def _role_matches(role: str, role_text: str) -> bool:
@@ -534,22 +637,15 @@ def _role_matches(role: str, role_text: str) -> bool:
     )
 
 
-def _role_part_by_rules(role_text: str, have: list[str], reasons: list[str]) -> float:
+def _role_part_by_rules(role_text: str, areas: set[str], reasons: list[str]) -> float:
     role_domains = {
         domain
         for domain, words in ROLE_DOMAINS.items()
         if _mentions_any(role_text, words)
     }
-    if not role_domains:
+    if not role_domains or not areas:
         return NEUTRAL
-    student_domains = {
-        domain
-        for domain, skills in DOMAIN_SKILLS.items()
-        if sum(skill in have for skill in skills) >= 2
-    }
-    if not student_domains:
-        return NEUTRAL
-    if role_domains & student_domains:
+    if role_domains & areas:
         reasons.append("Role suits your skills")
         return 1.0
     reasons.append("Role is outside your usual skill area")

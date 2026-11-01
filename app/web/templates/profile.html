@@ -76,9 +76,15 @@
   </form>
   <form method="post" action="/profile">
     <div class="form-grid three">
-      <label>Degree <input name="degree" value="{{ matching.get('degree') or '' }}" placeholder="e.g. B.Tech"></label>
+      <label>Degree <input name="degree" value="{{ matching.get('degree') or '' }}" placeholder="e.g. B.E."></label>
       <label>CGPA <input name="cgpa" value="{{ matching.get('cgpa') or '' }}" inputmode="decimal" placeholder="e.g. 8.2"></label>
       <label>Graduation year <input name="graduation_year" value="{{ matching.get('graduation_year') or '' }}" inputmode="numeric" placeholder="e.g. 2027"></label>
+      <label class="full">Branch <span class="hint">Used to tell which roles suit you, even with few skills listed</span>
+        <select name="branch">
+          <option value="">Not set</option>
+          {% for name in branches %}<option value="{{ name }}" {{ 'selected' if name == matching.get('branch') }}>{{ name }}</option>{% endfor %}
+        </select>
+      </label>
       <label class="full">Skills <input name="skills" value="{{ (matching.get('skills') or [])|join(', ') }}" placeholder="e.g. Python, SQL, Data structures"></label>
       <label>Technologies <input name="technologies" value="{{ (matching.get('technologies') or [])|join(', ') }}" placeholder="e.g. PostgreSQL, Docker"></label>
       <label>Interests <input name="interests" value="{{ (matching.get('interests') or [])|join(', ') }}" placeholder="e.g. Backend, ML"></label>

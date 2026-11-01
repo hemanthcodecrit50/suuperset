@@ -138,6 +138,18 @@ _TECH_VOCABULARY: dict[str, str] = {
     "google analytics": "Google Analytics",
     "seo": "SEO",
     "tally": "Tally",
+    # Tools of the other BMSCE branches: chemical, industrial, electrical, civil, aerospace
+    "aspen plus": "Aspen Plus",
+    "aspen hysys": "Aspen HYSYS",
+    "dwsim": "DWSIM",
+    "minitab": "Minitab",
+    "scada": "SCADA",
+    "etap": "ETAP",
+    "pscad": "PSCAD",
+    "primavera": "Primavera",
+    "ansys fluent": "ANSYS Fluent",
+    "cadence": "Cadence",
+    "six sigma": "Six Sigma",
 }
 
 _HEADING_ALIASES: dict[str, tuple[str, ...]] = {

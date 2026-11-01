@@ -18,11 +18,13 @@ from markupsafe import Markup
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.agent.router import drop_reason
 from app.config import Settings, get_settings
 from app.jobs.progress import PollProgress, read_progress
 from app.models import Opportunity, ResumeSuggestion
 from app.services import fit, notices, portfolio, preferences, profile_insight
 from app.services.applications import STATUSES, track
+from app.services.branches import BRANCH_NAMES
 from app.services.events import SOURCES, EventLog, read_events
 from app.services.llm import LlmClient
 from app.services.resume_import import (
@@ -283,6 +285,7 @@ def _register_routes(app: FastAPI, templates: Jinja2Templates) -> None:
             or _portal_url(request.app.state.settings, record),
             statuses=STATUSES,
             job=request.app.state.jobs.get(f"agent-{opportunity_id}"),
+            agent_skip_reason=_agent_skip_reason(record),
         )
 
     @app.post("/postings/{opportunity_id}/status", response_class=HTMLResponse)
@@ -430,6 +433,7 @@ def _register_routes(app: FastAPI, templates: Jinja2Templates) -> None:
             "profile",
             **extra,
             matching=preferences.load_preferences(session).matching,
+            branches=BRANCH_NAMES,
             insight=preferences.load_preferences(session).insight,
             projects=portfolio.list_items(session),
             project_statuses=portfolio.STATUSES,
@@ -456,7 +460,14 @@ def _register_routes(app: FastAPI, templates: Jinja2Templates) -> None:
         llm = LlmClient(settings=settings, events=EventLog(events_path(request)))
         draft = parse_resume(text, llm)
         current = preferences.load_preferences(session).matching
-        return page(request, session, "resume_review", draft=draft, current=current)
+        return page(
+            request,
+            session,
+            "resume_review",
+            draft=draft,
+            current=current,
+            branches=BRANCH_NAMES,
+        )
 
     @app.post("/profile/resume/apply")
     async def apply_resume(request: Request, session: DbSession):
@@ -465,7 +476,7 @@ def _register_routes(app: FastAPI, templates: Jinja2Templates) -> None:
             matching = _matching_from_form(form)
         except FormError as exc:
             return profile_page(request, session, 400, form_error=str(exc))
-        preferences.update_matching(session, **matching)
+        preferences.replace_profile(session, matching)
         added = _add_selected_projects(session, form)
         refresh_understanding(request, session)
         session.commit()
@@ -478,7 +489,7 @@ def _register_routes(app: FastAPI, templates: Jinja2Templates) -> None:
             matching = _matching_from_form(form)
         except FormError as exc:
             return profile_page(request, session, 400, form_error=str(exc))
-        preferences.update_matching(session, **matching)
+        preferences.replace_profile(session, matching)
         refresh_understanding(request, session)
         session.commit()
         return RedirectResponse("/profile?saved=1", status_code=303)
@@ -564,6 +575,23 @@ def _portal_url(settings: Settings, record: Opportunity) -> str:
     )
 
 
+def _agent_skip_reason(record: Opportunity) -> str | None:
+    # Same rule the agent applies, so the page never offers a run that does nothing
+    raw = record.raw or {}
+    reason = drop_reason(
+        {
+            "application_status": raw.get("application_status")
+            or raw.get("job_profile_status"),
+            "deadline": record.deadline.isoformat() if record.deadline else None,
+        }
+    )
+    if reason is None:
+        return None
+    if reason.startswith("Deadline"):
+        return "Applications have closed, so the agent does not brief this posting."
+    return "You are out of this process, so the agent does not brief this posting."
+
+
 def _opportunity_or_404(session: Session, opportunity_id: int) -> Opportunity:
     record = session.get(Opportunity, opportunity_id)
     if record is None:
@@ -617,6 +645,10 @@ def _matching_from_form(form: Any) -> dict[str, Any]:
         name: _split_list(str(form.get(name, ""))) for name in LIST_FIELDS
     }
     values["degree"] = str(form.get("degree", "")).strip() or None
+    branch = str(form.get("branch", "")).strip()
+    if branch and branch not in BRANCH_NAMES:
+        raise FormError(f"Unknown branch {branch!r}.")
+    values["branch"] = branch or None
     values["cgpa"] = _optional_number(form.get("cgpa"), float, "CGPA", CGPA_RANGE)
     values["graduation_year"] = _optional_number(
         form.get("graduation_year"), int, "Graduation year", GRADUATION_YEAR_RANGE

@@ -35,10 +35,14 @@
             {% else %}Researches the company, checks each claim against its source, scores your fit and suggests resume changes.{% endif %}
           </p>
         </div>
+        {% if agent_skip_reason %}
+        <span class="muted small" style="max-width: 220px; text-align: right">{{ agent_skip_reason }}</span>
+        {% else %}
         <button class="button {{ 'secondary' if brief }}" hx-post="/postings/{{ record.id }}/agent" hx-target="#job-slot" hx-swap="innerHTML"
                 hx-on::after-request="htmx.trigger(document.body, 'inspector')">
           {{ 'Re-run agent' if brief else 'Run agent' }}
         </button>
+        {% endif %}
       </div>
       <div id="job-slot">{% if job %}{% with job_name = 'agent-' ~ record.id %}{% include "_job.html" %}{% endwith %}{% endif %}</div>
       {% if brief %}
@@ -50,7 +54,7 @@
         </div>
         {% endif %}
       {% else %}
-        <div class="empty"><strong>No brief yet.</strong>Run the agent to get a verdict, key facts, risks and resume advice.</div>
+        <div class="empty"><strong>No brief yet.</strong>{% if agent_skip_reason %}{{ agent_skip_reason }}{% else %}Run the agent to get a verdict, key facts, risks and resume advice.{% endif %}</div>
       {% endif %}
 
       {% if record.attachments %}

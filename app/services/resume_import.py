@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
+from app.services.branches import find_branch
 from app.services.jd_parser import find_cgpa, find_degree, find_technologies
 from app.services.llm import LlmClient
 
@@ -54,6 +55,7 @@ class ProjectDraft:
 @dataclass
 class ResumeProfile:
     degree: str | None = None
+    branch: str | None = None
     cgpa: float | None = None
     graduation_year: int | None = None
     skills: list[str] = field(default_factory=list)
@@ -109,6 +111,7 @@ def parse_resume(text: str, llm: LlmClient | None) -> ResumeProfile:
 def _parse_with_rules(text: str) -> ResumeProfile:
     return ResumeProfile(
         degree=find_degree(text),
+        branch=find_branch(text),
         cgpa=find_cgpa(text),
         graduation_year=_graduation_year(text),
         technologies=find_technologies(text)[:MAX_LIST_ITEMS],
@@ -209,6 +212,7 @@ def _grounded_projects(
 
 def _fill_gaps(profile: ResumeProfile, rules: ResumeProfile) -> None:
     profile.degree = profile.degree or rules.degree
+    profile.branch = rules.branch
     profile.cgpa = profile.cgpa if profile.cgpa is not None else rules.cgpa
     profile.graduation_year = profile.graduation_year or rules.graduation_year
     for technology in rules.technologies:

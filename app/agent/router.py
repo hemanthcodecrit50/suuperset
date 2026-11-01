@@ -31,13 +31,10 @@ def route_change(
     now: dt.datetime | None = None,
 ) -> RouteDecision:
     """Pick the full path, the short path or drop the item as noise."""
-    now = now or dt.datetime.now(dt.UTC)
     status = str(opportunity.get("application_status") or "").upper()
-
-    if status in OUT_OF_PROCESS_STATUSES:
-        return RouteDecision(Route.DROP, f"Student is out of this process ({status}).")
-    if _is_deadline_passed(opportunity, now) and status not in IN_PROCESS_STATUSES:
-        return RouteDecision(Route.DROP, "Deadline has already passed.")
+    reason = drop_reason(opportunity, now)
+    if reason is not None:
+        return RouteDecision(Route.DROP, reason)
 
     if change_type == "new":
         if opportunity.get("eligible") is False:
@@ -55,6 +52,19 @@ def route_change(
     if not MATERIAL_FIELDS & set(changes):
         return RouteDecision(Route.SHORT, "Only cosmetic fields changed.")
     return RouteDecision(Route.FULL, "Job details changed.")
+
+
+def drop_reason(
+    opportunity: dict[str, Any], now: dt.datetime | None = None
+) -> str | None:
+    """Why the agent skips this posting whatever changed, or None when it would brief it."""
+    now = now or dt.datetime.now(dt.UTC)
+    status = str(opportunity.get("application_status") or "").upper()
+    if status in OUT_OF_PROCESS_STATUSES:
+        return f"Student is out of this process ({status})."
+    if _is_deadline_passed(opportunity, now) and status not in IN_PROCESS_STATUSES:
+        return "Deadline has already passed."
+    return None
 
 
 def _is_deadline_passed(opportunity: dict[str, Any], now: dt.datetime) -> bool:

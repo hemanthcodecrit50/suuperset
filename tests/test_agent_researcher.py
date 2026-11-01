@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
 from agent_helpers import FakeLlm, FakeTools, make_deps, make_search_result, make_state
 
 from app.agent.planner import BOND, COMPANY_OVERVIEW, Task
-from app.agent.researcher import research
+from app.agent.researcher import _is_about_company, research
 
 WIKI = "https://en.wikipedia.org/wiki/Zensar"
 BLOG = "https://forum.test/zensar-bond"
@@ -126,3 +127,29 @@ def test_results_about_other_entities_are_discarded():
     )
     state = research(_state([Task(COMPANY_OVERVIEW, "Zensar", "r")]), deps)
     assert state.evidence == []
+
+
+@pytest.mark.parametrize(
+    "item, expected",
+    [
+        ({"claim": "Back to the Future is a 1985 film", "title": "Back to the Future",
+          "source_url": "https://en.wikipedia.org/wiki/Back_to_the_Future"}, False),
+        ({"claim": "Future Standard is an investment firm", "title": "Future Standard",
+          "source_url": "https://en.wikipedia.org/wiki/Future_Standard"}, True),
+        ({"claim": "Official website: https://www.futurestandard.com/", "title": "Site",
+          "source_url": "https://www.futurestandard.com/"}, True),
+    ],
+)
+def test_namesakes_of_a_company_are_discarded(item, expected):
+    assert _is_about_company(item, "Future Standard") is expected
+
+
+def test_articles_about_an_ordinary_word_are_discarded():
+    travel = {"claim": "A travel visa is a conditional authorization", "title": "Travel visa",
+              "excerpt": "Document allowing entry", "source_url": "https://en.wikipedia.org/wiki/Travel_visa"}
+    company = {"claim": "Visa Inc. is an American multinational", "title": "Visa Inc.",
+               "excerpt": "American payment card services corporation",
+               "source_url": "https://en.wikipedia.org/wiki/Visa_Inc."}
+    listing = {"claim": "Topics referred to by the same term. Visa Inc., a US company",
+               "title": "Visa", "source_url": "https://en.wikipedia.org/wiki/Visa"}
+    assert [_is_about_company(item, "VISA") for item in (travel, company, listing)] == [False, True, False]

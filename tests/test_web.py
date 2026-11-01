@@ -603,3 +603,33 @@ def test_collector_panel_follows_the_latest_poll(factory, tmp_path):
     settings = make_settings(events_file=str(events_path))
     client = TestClient(create_app(factory, settings, FakeJobRunner()))
     assert "poll-1" in client.get("/collector").text
+
+
+def test_branch_is_saved_from_the_profile_form(client, factory):
+    from app.services.preferences import load_preferences
+
+    client.post("/profile", data={"branch": "Mechanical Engineering"})
+    with factory() as session:
+        assert load_preferences(session).matching["branch"] == "Mechanical Engineering"
+
+
+def test_unknown_branch_is_rejected(client):
+    assert client.post("/profile", data={"branch": "Astrology"}).status_code == 400
+
+
+def test_clearing_a_field_removes_it(client, factory):
+    from app.services.preferences import load_preferences
+
+    client.post("/profile", data={"cgpa": "8.2", "degree": "B.E."})
+    client.post("/profile", data={"cgpa": "", "degree": ""})
+    with factory() as session:
+        matching = load_preferences(session).matching
+        assert "cgpa" not in matching and "degree" not in matching
+
+
+def test_closed_postings_explain_why_there_is_no_agent_run(client, factory, posting_id):
+    with factory() as session:
+        session.get(Opportunity, posting_id).deadline = dt.datetime(2000, 1, 1, tzinfo=dt.UTC)
+        session.commit()
+    page = client.get(f"/postings/{posting_id}").text
+    assert "Applications have closed" in page and "Run agent" not in page

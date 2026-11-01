@@ -289,6 +289,9 @@ class WikipediaBackend(SearchBackend):
             description = None
             published_at = None
             wikibase_item = None
+            # A "may refer to" page lists namesakes; it says nothing about the company
+            if isinstance(summary, dict) and summary.get("type") == "disambiguation":
+                continue
             if isinstance(summary, dict):
                 extract = summary.get("extract")
                 description = summary.get("description")
@@ -313,7 +316,8 @@ class WikipediaBackend(SearchBackend):
                 )
             )
 
-            if wikibase_item and index == 0:
+            # The website belongs to the best article actually kept
+            if wikibase_item and len(results) == 1:
                 website = self._official_website(str(wikibase_item))
                 if website:
                     results.append(

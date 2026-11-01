@@ -32,6 +32,7 @@ MATCHING_FIELDS = (
     "companies",
     "min_compensation",
     "degree",
+    "branch",
     "cgpa",
     "graduation_year",
 )
@@ -191,6 +192,7 @@ def update_matching(
     companies: list[str] | None = None,
     min_compensation: float | None = None,
     degree: str | None = None,
+    branch: str | None = None,
     cgpa: float | None = None,
     graduation_year: int | None = None,
     weights: dict[str, float] | None = None,
@@ -208,6 +210,7 @@ def update_matching(
         "companies": companies,
         "min_compensation": min_compensation,
         "degree": degree,
+        "branch": branch,
         "cgpa": cgpa,
         "graduation_year": graduation_year,
         "weights": weights,
@@ -216,6 +219,18 @@ def update_matching(
         if value is not None:
             current[field_name] = value
 
+    _write(session, KEY_MATCHING, current)
+    return current
+
+
+def replace_profile(session: Session, values: dict[str, Any]) -> dict[str, Any]:
+    """Save the profile form as given: a field left blank is cleared, not kept."""
+    current = _read(session, KEY_MATCHING)
+    for field_name, value in values.items():
+        if value is None:
+            current.pop(field_name, None)
+        else:
+            current[field_name] = value
     _write(session, KEY_MATCHING, current)
     return current
 

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from app.agent.planner import BOND, INTERVIEW_PROCESS, PAY
 from app.agent.state import AgentDeps, AgentState, Claim, Task
+from app.services.notices import company_key
 from app.services.research import Evidence
 
 logger = logging.getLogger(__name__)
@@ -16,6 +18,30 @@ MAX_EVIDENCE_ITEMS = 12
 MAX_SYNTHESISED_CLAIMS = 8
 RESULTS_PER_QUERY = 3
 ANECDOTAL_TOPICS = frozenset({BOND, PAY, INTERVIEW_PROCESS})
+ORGANISATION_WORDS = (
+    "company",
+    "companies",
+    "corporation",
+    "conglomerate",
+    "multinational",
+    "firm",
+    "manufacturer",
+    "developer",
+    "provider",
+    "bank",
+    "startup",
+    "enterprise",
+    "subsidiary",
+    "organisation",
+    "organization",
+    "retailer",
+    "consultancy",
+    "inc",
+    "ltd",
+    "limited",
+)
+# Wikipedia's "may refer to" pages list namesakes instead of describing the company
+DISAMBIGUATION_MARKERS = ("topics referred to by the same term", "may refer to", "most commonly refers to")
 SOURCE_TRUST_ORDER = ("official", "reference", "news", "web", "news_low", "anecdotal")
 
 CLAIMS_SYSTEM = """You turn numbered evidence snippets into short factual claims.
@@ -33,8 +59,14 @@ Respond with a JSON object:
 def research(state: AgentState, deps: AgentDeps) -> AgentState:
     """Run the planned lookups in parallel, then build claims from the evidence."""
     tasks = _tasks_for_this_pass(state)
+    # Evidence cached by earlier runs passes the same company check as fresh results
+    cached = [
+        item
+        for item in state.memory.cached_evidence
+        if _is_about_company(_evidence_fields(item), state.company)
+    ]
     state.evidence = _merge_evidence(
-        state.memory.cached_evidence,
+        cached,
         state.evidence,
         _run_searches(tasks, state.company, deps),
     )
@@ -78,7 +110,7 @@ def _search_one(task: Task, company: str, deps: AgentDeps) -> list[Evidence]:
         logger.info("Search for %r failed: %s", task.query, response["error"])
         return []
     results = response["result"]["results"]
-    kept = [item for item in results if _mentions_company(item, company)]
+    kept = [item for item in results if _is_about_company(item, company)]
     if len(kept) < len(results):
         deps.record(
             "discard",
@@ -90,13 +122,43 @@ def _search_one(task: Task, company: str, deps: AgentDeps) -> list[Evidence]:
     return [_to_evidence(item, task.topic) for item in kept]
 
 
+def _evidence_fields(item: Evidence) -> dict:
+    return {
+        "claim": item.claim,
+        "title": item.title,
+        "excerpt": item.excerpt,
+        "source_url": item.source_url,
+    }
+
+
+def _is_about_company(item: dict, company: str) -> bool:
+    if not _mentions_company(item, company):
+        return False
+    # A Wikipedia article must describe an organisation, not a namesake word like "visa"
+    if "wikipedia.org/" not in str(item.get("source_url") or ""):
+        return True
+    about = f"{item.get('excerpt') or ''} {item.get('claim') or ''}".lower()
+    if any(marker in about for marker in DISAMBIGUATION_MARKERS):
+        return False
+    return any(
+        re.search(rf"(?<![a-z]){word}(?![a-z])", about) for word in ORGANISATION_WORDS
+    )
+
+
 def _mentions_company(item: dict, company: str) -> bool:
-    # Search engines return neighbours (parent groups, schools); keep only the company
-    name = company.lower().split()[0] if company.strip() else ""
+    # Search engines return neighbours and namesakes; "Future Standard" must not
+    # match "Back to the Future", so the distinctive name is matched as whole words
+    name = company_key(company) or company.strip().lower()
+    if not name:
+        return False
     searchable = " ".join(
         str(item.get(key) or "") for key in ("claim", "title", "excerpt", "source_url")
-    )
-    return name in searchable.lower()
+    ).lower()
+    pattern = rf"(?<![a-z0-9]){re.escape(name)}(?![a-z0-9])"
+    # Web addresses spell names without spaces: futurestandard.com
+    return bool(re.search(pattern, searchable)) or name.replace(" ", "") in str(
+        item.get("source_url") or ""
+    ).lower()
 
 
 def _to_evidence(item: dict, topic: str) -> Evidence:
