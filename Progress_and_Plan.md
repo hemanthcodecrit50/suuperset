@@ -1,6 +1,6 @@
 # Placement Copilot: Progress and Plan
 
-Agentic AI course project, built on the Superset Campus Placement Intelligence System (`suuperset/`). Status as of 2026-10-31.
+Agentic AI course project, built on the Superset Campus Placement Intelligence System (`suuperset/`). Status as of 2026-11-01 — agent layer complete through week 3; end-to-end pipeline implemented and wired into the poll job.
 
 ## 1. The idea in brief
 
@@ -183,19 +183,30 @@ Week 3 is complete: see `docs/agent_graph.md`. Week 1 is complete: nine tools re
 envelope, `parse_jd` is deterministic, `fetch_page` is allow-listed and
 size-capped, and search is cached for 7 days with a free/keyless-first backend.
 All 54 new tests pass, and the CLI can invoke any tool (`python -m app.main
-tools`, `python -m app.main tool <name>`).
+tools`, `python -m app.main tool <name>`). Weeks 2 and 3 added the rest of the
+agent pipeline — router -> planner -> parallel specialists -> critic (one retry)
+-> writer -> approval gate — and wired it into the poll job via
+`python -m app.main agent run <id>`.
 
 Dropped: golden set, evaluation metrics and harness, ablations, LLM judge, pilot rating.
 
 ## 5. Immediate next step
 
-Week 3 is done. Continue with evaluation and pilot feedback:
+Week 3 is done and the pipeline now runs end to end — see `docs/agent_graph.md`;
+the shared graph state, router, planner, specialist and critic steps originally
+listed here are implemented and covered by tests.
 
-1. Define the shared graph state: opportunity, student profile, evidence items
-   (each with a source URL), report draft, critic verdict, retry count.
-2. Add the router (new JD, procedure update, noise) and planner (bond, missing
-   pay, unfamiliar company).
-3. Run the researcher, matcher and resume advisor in parallel as specialists.
-4. Add the critic with exactly one researcher retry; drop unsupported claims and
-   label what stays unknown.
-5. Measure report grounding, approval usefulness, and delivery reliability.
+The immediate next step is now **evaluation and pilot feedback**, not further
+implementation of the graph.
+
+Next steps to be done:
+
+1. Run the full agent pipeline on live alerts and capture briefs end to end.
+2. Measure report grounding: run briefs with `python -m app.main agent run <id> --json`
+   and check the critic's unsupported-claim rate and the ≥90% claim-traceability target.
+3. Measure approval usefulness: use `python -m app.main resume-review` and collect
+   student feedback on the resume advice and pending approvals.
+4. Measure delivery reliability: verify Telegram/email brief delivery on real alerts,
+   including dedup and the alert-flood cap.
+5. Pilot on live alerts and collect qualitative feedback; adjust planner task
+   selection and critic thresholds from the findings.
