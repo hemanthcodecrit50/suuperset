@@ -34,13 +34,28 @@ def _fit_section(state: AgentState) -> list[str]:
     fit = state.fit
     if fit is None:
         return ["**Fit:** unavailable", ""]
+    if not state.memory.is_profile_set:
+        eligibility = _eligibility_without_profile(fit)
+        note = (
+            "**Fit:** not scored yet, because your profile is empty. "
+            f"**Eligibility:** {eligibility}"
+        )
+        return [note, ""]
     lines = [
         f"**Fit score:** {fit['score']}/100 · **Eligibility:** {fit['eligibility']}",
+        "",
     ]
     lines += [f"- {reason}" for reason in fit["reasons"]]
     if state.route is Route.SHORT:
         lines.append(f"- Short path: {state.route_reason}")
     return lines + [""]
+
+
+def _eligibility_without_profile(fit: dict) -> str:
+    # The matcher says "eligible" when the JD sets no hard requirements at all
+    if fit["eligibility"] == "eligible":
+        return "the JD publishes no hard requirements."
+    return "unknown until you add your degree, CGPA and graduation year."
 
 
 def _risk_section(state: AgentState) -> list[str]:

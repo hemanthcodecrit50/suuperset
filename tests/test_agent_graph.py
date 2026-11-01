@@ -100,3 +100,9 @@ def test_no_evidence_means_no_claims_and_no_retry():
     tools = FakeTools(make_settings())
     state = run_graph(make_state(parsed_jd=PARSED_JD), make_deps(tools))
     assert state.claims == [] and state.retry_count == 0
+
+
+def test_brief_says_so_when_no_company_information_was_found():
+    tools = FakeTools(make_settings())
+    state = run_graph(make_state(parsed_jd=PARSED_JD), make_deps(tools))
+    assert any("No verified public information" in item for item in state.unknowns)

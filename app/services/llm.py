@@ -15,11 +15,13 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
 
 from app.config import Settings, get_settings
+from app.services.llm_budget import LlmBudget
 
 logger = logging.getLogger(__name__)
 
@@ -51,86 +53,76 @@ class LlmClient:
             headers["Authorization"] = f"Bearer {key}"
         return headers
 
+    @property
+    def budget(self) -> LlmBudget:
+        return LlmBudget(
+            Path(self.settings.llm_usage_file),
+            self.settings.llm_daily_request_limit,
+            self.settings.llm_min_interval_seconds,
+        )
+
     def complete_json(
         self, system: str, user: str, timeout: float = 120.0
     ) -> dict[str, Any] | None:
-        """Ask for a JSON object; return ``None`` if unavailable or unparseable.
-
-        Free-tier providers differ in how strictly they support
-        ``response_format``, so a rejection triggers one retry without it.
-        """
+        """Ask for a JSON object; return ``None`` if unavailable or unparseable."""
         if not self.configured:
             logger.info("No LLM configured; skipping generation.")
             return None
+        body = self._body(system, user)
+        response = self._send({**body, "response_format": {"type": "json_object"}}, timeout)
+        if response is not None and response.status_code == 400:
+            # Some providers reject response_format; this is the only retry we allow
+            response = self._send(body, timeout)
+        return _parse_json(_content(response) or "")
 
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ]
-        payload: dict[str, Any] = {
+    def complete_text(
+        self, system: str, user: str, timeout: float = 90.0, max_chars: int = 400
+    ) -> str | None:
+        """Ask for a short plain-text answer; ``None`` if unavailable."""
+        if not self.configured:
+            logger.info("No LLM configured; skipping generation.")
+            return None
+        content = (_content(self._send(self._body(system, user), timeout)) or "").strip()
+        return content[:max_chars] if content else None
+
+    def _body(self, system: str, user: str) -> dict[str, Any]:
+        return {
             "model": self.settings.research_model,
-            "messages": messages,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
             "temperature": 0.2,
         }
 
-        for attempt in range(2):
-            body = dict(payload)
-            if attempt == 0:
-                body["response_format"] = {"type": "json_object"}
-            try:
-                response = httpx.post(
-                    self._endpoint(),
-                    json=body,
-                    headers=self._headers(),
-                    timeout=timeout,
-                )
-                response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
-                return _parse_json(content)
-            except Exception as exc:  # noqa: BLE001 - degrade gracefully
-                if attempt == 0:
-                    logger.info(
-                        "Retrying without response_format after: %s",
-                        str(exc)[:160],
-                    )
-                    continue
-                logger.warning("LLM call failed: %s", str(exc)[:200])
+    def _send(self, body: dict[str, Any], timeout: float) -> httpx.Response | None:
+        # Every HTTP request counts against the daily cap, including retries
+        if not self.budget.acquire():
+            logger.warning(
+                "Daily model request cap (%d) reached; using evidence-only output.",
+                self.settings.llm_daily_request_limit,
+            )
+            return None
+        try:
+            return httpx.post(
+                self._endpoint(), json=body, headers=self._headers(), timeout=timeout
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("LLM request failed: %s", str(exc)[:200])
+            return None
+
+
+def _content(response: httpx.Response | None) -> str | None:
+    if response is None:
         return None
-
-
-
-    def complete_text(
-            self, system: str, user: str, timeout: float = 90.0, max_chars: int = 400
-        ) -> str | None:
-            """Ask for a short plain-text answer.
-
-            Used for one-line summaries, where demanding JSON makes small models
-            fail (they answer in prose). Returns ``None`` if unavailable.
-            """
-            if not self.configured:
-                logger.info("No LLM configured; skipping generation.")
-                return None
-            try:
-                response = httpx.post(
-                    self._endpoint(),
-                    json={
-                        "model": self.settings.research_model,
-                        "messages": [
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": user},
-                        ],
-                        "temperature": 0.2,
-                    },
-                    headers=self._headers(),
-                    timeout=timeout,
-                )
-                response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"] or ""
-                content = content.strip()
-                return content[:max_chars] if content else None
-            except Exception as exc:  # noqa: BLE001 - degrade gracefully
-                logger.warning("LLM text call failed: %s", str(exc)[:200])
-                return None
+    if response.status_code != 200:
+        logger.warning("LLM returned %s: %s", response.status_code, response.text[:200])
+        return None
+    try:
+        return response.json()["choices"][0]["message"]["content"]
+    except (ValueError, KeyError, IndexError, TypeError):
+        logger.warning("LLM response had no message content.")
+        return None
 
 
 def _parse_json(content: str) -> dict[str, Any] | None:

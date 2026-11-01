@@ -35,3 +35,10 @@ def source_factory():
         return source
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def isolated_llm_budget(tmp_path, monkeypatch):
+    """Keep tests from spending or waiting on the real model request budget."""
+    monkeypatch.setenv("LLM_USAGE_FILE", str(tmp_path / "llm_usage.json"))
+    monkeypatch.setenv("LLM_MIN_INTERVAL_SECONDS", "0")

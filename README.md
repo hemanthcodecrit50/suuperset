@@ -153,28 +153,33 @@ Tests:
 pytest
 ```
 
-## The web app (main way to configure everything)
+## The web app (main way to use everything)
 
 ```bash
-streamlit run app/dashboard.py     # http://localhost:8501
+python -m app.main web     # http://127.0.0.1:8000 (this computer only)
 ```
 
 | Page | What you do there |
 | --- | --- |
-| **Overview** | Health, what's new, what's closing soon |
-| **Opportunities** | Filter by relevance/company/type; see scores, JD, courses; track jobs |
-| **Applications** | Update status, next action, due date, notes |
-| **Announcements** | Every collected notice with a link |
-| **Portfolio** | Add/edit your projects, skills, achievements, evidence links |
-| **Preferences** | Skills, interests, tech, locations, companies, CGPA/degree/year, alert threshold, scoring weights |
-| **AI assistant** | Cited company research + evidence-backed resume bullets |
-| **Alerts** | Queue history and manual sends |
+| **Inbox** | New and changed postings with fit, deadline, status and "Brief ready" chips. Filter and search |
+| **Posting** | The agent brief with cited sources, the JD, your status, and a **Run agent** button |
+| **Approvals** | Approve or reject suggested resume bullets; nothing is used until you approve it |
+| **Applications** | Everything you track, soonest deadline first |
+| **Profile & system** | Skills, CGPA and portfolio; **Connect Superset**; **Run poll now**; recent polls |
 
-Start here: set your **Preferences**, then add a few **Portfolio** items — the
-resume engine can only ground suggestions in real projects.
+**Superset login without storing credentials.** **Connect Superset** opens the
+real Superset page in a browser window on your computer. You log in there
+yourself; the app keeps only the session cookies (`secrets/storage_state.json`,
+gitignored, readable only by you). Your password is never seen or stored.
+**Disconnect** deletes the session.
 
-AI features need a model — see [`docs/ai_setup.md`](docs/ai_setup.md)
-(free + private with local Ollama, or a paid OpenCode key).
+Everything is free: FastAPI, htmx (bundled in `app/web/static`, works offline),
+SQLite or local PostgreSQL, free search APIs, and optional local Ollama for the
+model features (resume bullets, report polishing). See
+[`docs/ai_setup.md`](docs/ai_setup.md).
+
+Telegram and email still work but are optional and off unless configured. The
+older Streamlit dashboard (`streamlit run app/dashboard.py`) is kept for now.
 
 ## Agent tools (week 1)
 

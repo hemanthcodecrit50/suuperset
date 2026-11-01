@@ -155,3 +155,27 @@ def test_pay_finding_appears_for_the_role_it_was_searched_for(session, tools):
     record.compensation = None
     result = analyze_opportunity(session, record, "new", deps=make_deps(tools))
     assert "forum.test" in result.markdown
+
+
+def test_fresh_run_ignores_the_stored_brief(session, deps):
+    record = _add_opportunity(session)
+    analyze_opportunity(session, record, "new", deps=deps)
+    second = analyze_opportunity(session, record, "new", deps=deps, should_reuse=False)
+    assert second.is_reused is False
+
+
+def test_saved_brief_writes_its_fit_score_to_the_posting(session, deps):
+    record = _add_opportunity(session)
+    result = analyze_opportunity(session, record, "new", deps=deps)
+    assert record.relevance_score == result.state.fit["score"]
+
+
+def test_no_save_stores_no_resume_suggestions(session, tools):
+    from agent_helpers import FakeLlm
+
+    from app.models import ResumeSuggestion
+
+    deps = make_deps(tools, FakeLlm(bullet="Backend service built with Python"))
+    record = _add_opportunity(session)
+    analyze_opportunity(session, record, "new", deps=deps, should_save=False)
+    assert session.query(ResumeSuggestion).count() == 0

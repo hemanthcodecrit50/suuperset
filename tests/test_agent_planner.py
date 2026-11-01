@@ -72,3 +72,22 @@ def test_plan_never_exceeds_the_task_cap():
 
 def test_posting_without_a_company_gets_no_tasks():
     assert _topics(make_opportunity(company=None)) == []
+
+
+def test_legal_suffixes_are_removed_from_search_names():
+    from app.agent.planner import search_name
+
+    assert search_name("InfoCepts Technologies Pvt. Ltd.") == "InfoCepts Technologies"
+
+
+def test_plain_company_names_are_unchanged():
+    from app.agent.planner import search_name
+
+    assert search_name("Zensar") == "Zensar"
+
+
+def test_searches_use_the_name_without_its_legal_suffix():
+    tasks = plan_tasks(
+        make_opportunity(company="Acme Private Limited"), STATED_PAY_JD, make_memory()
+    )
+    assert tasks[0].query == "Acme"

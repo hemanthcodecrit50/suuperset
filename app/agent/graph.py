@@ -107,7 +107,12 @@ def _retry_research(state: AgentState, deps: AgentDeps) -> AgentState:
 
 def _finalise(state: AgentState, deps: AgentDeps) -> AgentState:
     state.unknowns.extend(_unknown_jd_fields(state))
-    return critic.drop_unsupported(state)
+    state = critic.drop_unsupported(state)
+    if not state.claims:
+        state.unknowns.append(
+            "No verified public information about the company was found in free sources."
+        )
+    return state
 
 
 def _unknown_jd_fields(state: AgentState) -> list[str]:

@@ -20,9 +20,10 @@ import fcntl
 import logging
 import os
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Iterator
+from pathlib import Path
 
 from sqlalchemy import func, select
 
@@ -41,8 +42,9 @@ from app.collector.mappers import collect_announcements_api, collect_job_profile
 from app.collector.notifications import collect_announcements
 from app.config import Settings, get_settings
 from app.db import session_scope
+from app.jobs.progress import ProgressReporter
 from app.models import PollRun, Source
-from app.services.alerts import CHANNEL_EMAIL, CHANNEL_TELEGRAM, deliver_pending
+from app.services.alerts import CHANNEL_EMAIL, CHANNEL_TELEGRAM
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +161,9 @@ def _detail_predicate(settings: Settings):
     return need_detail
 
 
-async def _collect(settings: Settings) -> tuple[list, list]:
+async def _collect(
+    settings: Settings, progress: ProgressReporter | None = None
+) -> tuple[list, list]:
     """Collect announcements and job profiles.
 
     Prefers the portal's JSON API (fast, structured, stable ids) and falls back
@@ -175,12 +179,14 @@ async def _collect(settings: Settings) -> tuple[list, list]:
     opportunities: list = []
     errors: list[str] = []
 
+    progress = progress or ProgressReporter(None)
+    progress.update("connect")
     async with BrowserSession(settings=settings, headless=True) as session:
         if settings.collector_mode != "dom":
             api = None
             try:
                 api = await SupersetApi.from_context(session._context, settings)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 message = f"API authentication failed: {exc}"
                 logger.error(message)
                 if settings.collector_mode == "api":
@@ -190,6 +196,7 @@ async def _collect(settings: Settings) -> tuple[list, list]:
             if api is not None:
                 # Independent fetches: keep whatever succeeds.
                 try:
+                    progress.update("announcements")
                     announcements = await collect_announcements_api(api)
                 except Exception as exc:  # noqa: BLE001
                     message = f"announcements fetch failed: {exc}"
@@ -202,6 +209,9 @@ async def _collect(settings: Settings) -> tuple[list, list]:
                         include_detail=settings.fetch_job_details,
                         detail_limit=settings.detail_limit or None,
                         status=settings.job_status_filter or None,
+                        on_progress=lambda done, total: progress.update(
+                            "jobs", f"{done} of {total} job profiles", done, total
+                        ),
                         need_detail=(
                             _detail_predicate(settings)
                             if settings.fetch_job_details
@@ -333,7 +343,7 @@ def _field_changes(session, record) -> dict:
 
 def _normalise(value):
     if isinstance(value, dt.datetime):
-        return value.astimezone(dt.timezone.utc).isoformat()
+        return value.astimezone(dt.UTC).isoformat()
     if isinstance(value, str):
         return " ".join(value.split())
     if isinstance(value, (list, tuple)):
@@ -348,6 +358,7 @@ def _persist(
     opportunities,
     *,
     queue_alerts: bool = True,
+    progress: ProgressReporter | None = None,
 ) -> PollResult:
     """Upsert collected items and (optionally) queue alerts.
 
@@ -394,7 +405,12 @@ def _persist(
                 },
             )
 
-    for opp in opportunities:
+    progress = progress or ProgressReporter(None)
+    seeded = 0
+    for index, opp in enumerate(opportunities, start=1):
+        progress.update(
+            "save", f"{index} of {len(opportunities)} postings", index, len(opportunities)
+        )
         # A skipped detail fetch must not erase data we already have.
         if not opp.raw.get("detail_fetched"):
             stored = stored_details.get(opp.external_id)
@@ -411,7 +427,7 @@ def _persist(
         # not a real update the user needs to hear about.
         was_detailed = record.detail_fetched_at is not None
         if opp.raw.get("detail_fetched"):
-            record.detail_fetched_at = dt.datetime.now(dt.timezone.utc)
+            record.detail_fetched_at = dt.datetime.now(dt.UTC)
         if change == NEW:
             result.items_new += 1
         elif change == CHANGED:
@@ -429,12 +445,22 @@ def _persist(
         if change == CHANGED:
             changes = _field_changes(session, record)
 
-        if change in (NEW, CHANGED) and should_alert:
+        if change in (NEW, CHANGED) and not queue_alerts:
+            # The seeding run only stores the backlog: no documents, no model calls
+            seeded += 1
+        elif change in (NEW, CHANGED) and should_alert:
             # Research agent: build the document, then format the message from
-            # the same facts so the file and the alert never disagree.
-            document = build_document(record, change, changes=changes)
+            # the same facts so the file and the alert never disagree. The agent
+            # brief carries the AI analysis, so the summary line stays factual.
+            document = build_document(record, change, changes=changes, use_model=False)
             brief = None
             if queue_alerts and result.items_briefed < settings.agent_max_briefs_per_run:
+                progress.update(
+                    "save",
+                    f"Writing agent brief for {record.title} at {record.company_name}",
+                    index,
+                    len(opportunities),
+                )
                 brief = _agent_brief(session, settings, record, change, changes)
                 if brief:
                     document += "\n" + brief
@@ -477,6 +503,8 @@ def _persist(
         result.details["alerts_suppressed"] = suppressed
     if result.items_briefed:
         result.details["agent_briefs"] = result.items_briefed
+    if seeded:
+        result.details["seeded_without_documents"] = seeded
     if result.items_filtered:
         result.details["below_relevance_threshold"] = result.items_filtered
         logger.info(
@@ -500,7 +528,7 @@ def _agent_brief(session, settings: Settings, record, change: str, changes: dict
             return analyze_opportunity(
                 session, record, change, changes, deps=default_deps(settings)
             ).markdown
-    except Exception:  # noqa: BLE001 - the agent is an add-on to collection
+    except Exception:
         logger.exception("Agent brief failed for opportunity %s", record.id)
         return ""
 
@@ -511,7 +539,7 @@ def _next_action_for(record) -> str | None:
     return "Review and apply"
 
 
-async def _run_once(settings: Settings) -> PollResult:
+async def _run_once(settings: Settings, progress: ProgressReporter) -> PollResult:
     tot = 0
     last_error: Exception | None = None
     # The first successful run only seeds the database; alerting on the whole
@@ -520,12 +548,13 @@ async def _run_once(settings: Settings) -> PollResult:
     for attempt in range(1, settings.poll_max_retries + 1):
         try:
             with session_scope() as session:
+                _close_interrupted_runs(session)
                 run = PollRun(status="running")
                 session.add(run)
                 session.flush()
                 run_id = run.id
 
-            announcements, opportunities, errors = await _collect(settings)
+            announcements, opportunities, errors = await _collect(settings, progress)
 
             with session_scope() as session:
                 result = _persist(
@@ -536,6 +565,7 @@ async def _run_once(settings: Settings) -> PollResult:
                     queue_alerts=not (
                         is_first_run and settings.suppress_alerts_on_first_run
                     ),
+                    progress=progress,
                 )
                 if errors:
                     # Persist whatever succeeded, but never report a clean
@@ -545,11 +575,13 @@ async def _run_once(settings: Settings) -> PollResult:
                     result.details["errors"] = errors
                 _finalize_run(session, run_id, result)
 
+            progress.update("done", _summary(result))
             # Delivery is handled by the separate alert worker (app.main deliver)
             # so a Telegram/SMTP outage cannot fail the collection run.
             return result
         except SessionExpiredError as exc:
             logger.error("Session expired: %s", exc)
+            progress.update("failed", "Superset session expired. Reconnect from Profile.")
             with session_scope() as session:
                 _finalize_run(
                     session, _latest_run_id(session), PollResult(status="failed", error=str(exc))
@@ -567,6 +599,7 @@ async def _run_once(settings: Settings) -> PollResult:
                 delay,
             )
             if attempt < settings.poll_max_retries:
+                progress.update("connect", f"Attempt {attempt} failed; retrying")
                 await asyncio.sleep(delay)
             else:
                 # Final attempt: close out the run row so health reporting
@@ -577,8 +610,16 @@ async def _run_once(settings: Settings) -> PollResult:
                         _latest_run_id(session),
                         PollResult(status="failed", error=str(exc)[:2000]),
                     )
+                progress.update("failed", str(exc)[:200])
 
     raise RuntimeError(f"Poll failed after {tot} attempts") from last_error
+
+
+def _close_interrupted_runs(session) -> None:
+    # The poll lock means no other run is alive, so any "running" row was cut short
+    for run in session.scalars(select(PollRun).where(PollRun.status == "running")):
+        run.status = "interrupted"
+        run.finished_at = run.finished_at or dt.datetime.now(dt.UTC)
 
 
 def _latest_run_id(session) -> int | None:
@@ -602,7 +643,7 @@ def _finalize_run(session, run_id: int | None, result: PollResult) -> None:
     run = session.get(PollRun, run_id)
     if run is None:
         return
-    run.finished_at = dt.datetime.now(dt.timezone.utc)
+    run.finished_at = dt.datetime.now(dt.UTC)
     run.status = result.status
     run.items_seen = result.items_seen
     run.items_new = result.items_new
@@ -618,7 +659,7 @@ def check_heartbeat(settings: Settings | None = None) -> bool:
     Returns ``True`` if a heartbeat warning was raised.
     """
     settings = settings or get_settings()
-    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
+    cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(
         hours=settings.heartbeat_max_age_hours
     )
     with session_scope() as session:
@@ -668,7 +709,14 @@ async def run_poll(settings: Settings | None = None) -> PollResult:
     settings = settings or get_settings()
     ensure_source(settings)
     with file_lock(settings.poll_lock_file):
-        return await _run_once(settings)
+        return await _run_once(settings, ProgressReporter(Path(settings.poll_progress_file)))
+
+
+def _summary(result: PollResult) -> str:
+    return (
+        f"{result.items_seen} items checked · {result.items_new} new · "
+        f"{result.items_changed} changed · {result.items_briefed} briefs written"
+    )
 
 
 def main() -> int:
@@ -681,7 +729,7 @@ def main() -> int:
     except PollLocked as exc:
         logger.warning("%s", exc)
         return 0
-    except Exception as exc:  # noqa: BLE001 - top-level job failure
+    except Exception as exc:
         logger.exception("Poll run failed: %s", exc)
         return 1
     logger.info(

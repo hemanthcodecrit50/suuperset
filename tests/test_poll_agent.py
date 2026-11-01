@@ -66,3 +66,38 @@ def test_briefs_per_run_are_capped(session, monkeypatch):
     settings = make_settings(agent_max_briefs_per_run=2)
     result = poll._persist(session, settings, [], opportunities, queue_alerts=True)
     assert result.items_briefed == 2
+
+
+def test_seeding_run_writes_no_documents(session, monkeypatch):
+    monkeypatch.setattr(
+        poll, "write_document", lambda *args: pytest.fail("no documents")
+    )
+    opportunity = RawOpportunity(
+        external_id="job-1", title="Backend Intern", company_name="Zensar"
+    )
+    poll._persist(session, make_settings(), [], [opportunity], queue_alerts=False)
+
+
+def test_research_document_never_calls_the_model(session, monkeypatch):
+    calls = []
+    monkeypatch.setattr(poll, "_agent_brief", lambda *args: "")
+    monkeypatch.setattr(poll, "write_document", lambda *args: Path("x.md"))
+    monkeypatch.setattr(
+        poll,
+        "build_document",
+        lambda *args, **kwargs: calls.append(kwargs.get("use_model")) or "doc",
+    )
+    opportunity = RawOpportunity(
+        external_id="job-1", title="Backend Intern", company_name="Zensar"
+    )
+    poll._persist(session, make_settings(), [], [opportunity], queue_alerts=True)
+    assert calls == [False]
+
+
+def test_interrupted_runs_are_closed(session):
+    from app.models import PollRun
+
+    session.add(PollRun(status="running"))
+    session.flush()
+    poll._close_interrupted_runs(session)
+    assert session.query(PollRun).one().status == "interrupted"

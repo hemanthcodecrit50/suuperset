@@ -7,6 +7,7 @@ the data came from — API or DOM fallback.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from app.collector.api import SupersetApi, epoch_ms_to_datetime, html_to_text
@@ -207,6 +208,7 @@ async def collect_job_profiles_api(
     detail_limit: int | None = None,
     status: str | None = None,
     need_detail=None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> list[RawOpportunity]:
     """Collect job profiles from the API, optionally fetching full details.
 
@@ -226,7 +228,9 @@ async def collect_job_profiles_api(
 
     results: list[RawOpportunity] = []
     fetched = 0
-    for item in items:
+    for index, item in enumerate(items, start=1):
+        if on_progress is not None:
+            on_progress(index, len(items))
         detail = None
         if include_detail:
             wanted_detail = True if need_detail is None else bool(need_detail(item))

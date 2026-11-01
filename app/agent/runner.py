@@ -47,13 +47,15 @@ def analyze_opportunity(
     *,
     deps: AgentDeps | None = None,
     should_save: bool = True,
+    should_reuse: bool = True,
 ) -> BriefResult:
     """Run the graph for one opportunity and return the rendered brief."""
     deps = deps or default_deps()
-    deps.session = session
+    # Without a session the approval gate stores nothing, which --no-save expects
+    deps.session = session if should_save else None
     session.flush()
 
-    if should_save:
+    if should_save and should_reuse:
         stored = store.find_current_brief(
             session, opportunity.id, opportunity.content_hash
         )
@@ -67,7 +69,18 @@ def analyze_opportunity(
     if should_save and state.route is not Route.DROP:
         store.save_brief(session, state, markdown, opportunity.content_hash)
         store.save_company_evidence(session, state)
+        _save_fit(opportunity, state)
     return BriefResult(state, markdown)
+
+
+def _save_fit(opportunity: Opportunity, state: AgentState) -> None:
+    # Keeps the inbox fit chip in step with the score shown in the brief
+    if state.fit is None:
+        return
+    opportunity.relevance_score = state.fit["score"]
+    opportunity.relevance_reasons = state.fit["reasons"]
+    opportunity.relevance_unknown = state.fit["unknown"]
+    opportunity.eligible = state.fit["hard_constraints_met"]
 
 
 def _build_state(

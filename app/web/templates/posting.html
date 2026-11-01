@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_macros.html" import avatar, deadline_chip, fit_meter, status_select %}
+{% block title %}{{ record.title }} · Placement Copilot{% endblock %}
+{% block content %}
+<a class="back" href="/">← Back to inbox</a>
+
+<section class="hero">
+  <div class="hero-top">
+    {{ avatar(record.company_name, 'large') }}
+    <div class="hero-text">
+      <h1>{{ record.title }}</h1>
+      <div class="sub">{{ record.company_name or 'Unknown company' }}{% if location %} · {{ location }}{% endif %}</div>
+    </div>
+    <div class="actions">
+      {{ status_select(record.id, status, statuses) }}
+      <a class="button ghost" href="{{ portal_url }}" target="_blank" rel="noopener">Open in Superset ↗</a>
+    </div>
+  </div>
+  <dl class="facts">
+    <div><dt>Fit</dt><dd>{% if fit_score is none and record.eligible is not false %}<a href="/profile" class="small">Fill in your profile</a>{% else %}{{ fit_meter(fit_score, record.eligible) }}{% endif %}</dd></div>
+    <div><dt>Deadline</dt><dd>{{ deadline_chip(days_left, record.deadline) }}</dd></div>
+    <div><dt>Pay</dt><dd>{{ record.compensation or 'Not stated' }}</dd></div>
+    <div><dt>Type</dt><dd>{{ record.work_type or '—' }}</dd></div>
+  </dl>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2>Agent brief</h2>
+      <p class="muted small">
+        {% if brief %}Generated {{ brief.generated_at|relative }}. Company facts link to the source the critic checked.
+        {% else %}Researches the company, checks every claim against its source, scores your fit and suggests resume changes.{% endif %}
+      </p>
+    </div>
+    <button class="button" hx-post="/postings/{{ record.id }}/agent" hx-target="#job-slot" hx-swap="innerHTML">
+      <svg viewBox="0 0 24 24"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.4-6.4-2.1 2.1M7.7 16.3l-2.1 2.1m12.8 0-2.1-2.1M7.7 7.7 5.6 5.6"/></svg>
+      {{ 'Re-run agent' if brief else 'Run agent' }}
+    </button>
+  </div>
+  <div id="job-slot">{% if job %}{% with job_name = 'agent-' ~ record.id %}{% include "_job.html" %}{% endwith %}{% endif %}</div>
+  {% if brief %}
+    <article class="brief">{{ brief.content.markdown|markdown|safe }}</article>
+  {% endif %}
+</section>
+
+{% if record.description %}
+<details class="panel">
+  <summary>Job description</summary>
+  <div class="jd">{{ record.description }}</div>
+</details>
+{% endif %}
+{% endblock %}

@@ -84,7 +84,7 @@ def test_retries_without_response_format_when_rejected(monkeypatch):
     assert "response_format" not in calls[1]
 
 
-def test_gives_up_after_second_failure(monkeypatch):
+def test_auth_failure_is_not_retried(monkeypatch):
     client = _client()
     calls: list[int] = []
 
@@ -94,7 +94,38 @@ def test_gives_up_after_second_failure(monkeypatch):
 
     monkeypatch.setattr(httpx, "post", fake_post)
     assert client.complete_json("system", "user") is None
+    assert len(calls) == 1
+
+
+def test_rate_limit_is_not_retried(monkeypatch):
+    calls: list[int] = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append(1)
+        return _response(429, {"error": {"message": "quota"}})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    _client().complete_json("system", "user")
+    assert len(calls) == 1
+
+
+def test_no_request_is_sent_once_the_daily_cap_is_used(monkeypatch):
+    calls: list[int] = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append(1)
+        return _response(200, {"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    client = _client(llm_daily_request_limit=2)
+    for _ in range(3):
+        client.complete_text("sys", "usr")
     assert len(calls) == 2
+
+
+def test_capped_client_returns_none_instead_of_calling(monkeypatch):
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: pytest.fail("must not call"))
+    assert _client(llm_daily_request_limit=0).complete_text("sys", "usr") is None
 
 
 def test_authorization_header_only_when_key_present():

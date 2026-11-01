@@ -11,6 +11,7 @@ Examples::
     python -m app.main tools       # list the agent tools (week 1)
     python -m app.main tool NAME   # call one agent tool with JSON arguments
     python -m app.main agent run ID  # run the agent graph on one opportunity
+    python -m app.main web         # open the web interface at http://127.0.0.1:8000
     python -m app.main resume-review  # review pending resume suggestions
 """
 
@@ -68,7 +69,10 @@ def _cmd_dryrun(args: argparse.Namespace) -> int:
     from app.collector.api import SupersetApi
     from app.collector.browser import BrowserSession
     from app.collector.job_profiles import collect_job_profiles
-    from app.collector.mappers import collect_announcements_api, collect_job_profiles_api
+    from app.collector.mappers import (
+        collect_announcements_api,
+        collect_job_profiles_api,
+    )
     from app.collector.notifications import collect_announcements
 
     logging.basicConfig(
@@ -177,8 +181,6 @@ def _cmd_migrate(_args: argparse.Namespace) -> int:
 
 def _cmd_prefs(args: argparse.Namespace) -> int:
     from app.services.preferences import (
-        KEY_MATCHING,
-        KEY_NOTIFICATIONS,
         load_preferences,
         update_matching,
         update_notifications,
@@ -263,7 +265,7 @@ def _cmd_prefs(args: argparse.Namespace) -> int:
 
 
 def _cmd_track(args: argparse.Namespace) -> int:
-    from app.services.applications import STATUSES, find_opportunity, track
+    from app.services.applications import find_opportunity, track
 
     if args.action == "list":
         from app.services.applications import open_applications
@@ -479,14 +481,14 @@ def _cmd_demo(args: argparse.Namespace) -> int:
     import datetime as dt
     import shutil
 
-    from app.agent.research_agent import build_document, format_telegram, write_document
-    from app.collector.change_detector import CHANGED, NEW, enqueue_alert
-    from app.db import get_engine
-    from app.models import AlertDelivery, Opportunity, OpportunityVersion
     from sqlalchemy import select
 
+    from app.agent.research_agent import build_document, format_telegram, write_document
+    from app.collector.change_detector import CHANGED, NEW, enqueue_alert
+    from app.models import AlertDelivery, Opportunity, OpportunityVersion
+
     settings = get_settings()
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     marker = "DEMO"
 
     # --- cleanup -------------------------------------------------------
@@ -683,12 +685,63 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
             print(f"No opportunity with id {args.opportunity_id}.")
             return 1
         result = analyze_opportunity(
-            session, opportunity, args.change, should_save=not args.no_save
+            session,
+            opportunity,
+            args.change,
+            should_save=not args.no_save,
+            should_reuse=not args.fresh,
         )
     if args.json and result.state is not None:
         print(json.dumps(result.state.to_dict(), indent=2, default=str))
     else:
         print(result.markdown or "Dropped by the router: nothing to brief.")
+    return 0
+
+
+def _cmd_llm_check(_args: argparse.Namespace) -> int:
+    """Send one tiny request to check the model key, and show today's usage."""
+    from app.services.llm import default_client
+
+    client = default_client()
+    if not client.configured:
+        print("No model configured. Set OPENAI_API_KEY and OPENAI_BASE_URL in .env.")
+        return 1
+    reply = client.complete_text("Reply with the single word OK.", "Ping", max_chars=20)
+    usage = client.budget.usage()
+    print(f"Model: {client.settings.research_model}")
+    print(f"Reply: {reply or 'none (see the warning above)'}")
+    print(f"Requests used today: {usage.used}/{usage.limit}")
+    return 0 if reply else 1
+
+
+def _cmd_llm_models(_args: argparse.Namespace) -> int:
+    """List the model ids the configured key can use (does not use the request budget)."""
+    import httpx
+
+    from app.services.llm import default_client
+
+    client = default_client()
+    if not client.configured:
+        print("No model configured. Set OPENAI_API_KEY and OPENAI_BASE_URL in .env.")
+        return 1
+    url = client._endpoint().removesuffix("/chat/completions") + "/models"
+    response = httpx.get(url, headers=client._headers(), timeout=20)
+    if response.status_code != 200:
+        print(f"Provider returned {response.status_code}: {response.text[:200]}")
+        return 1
+    for model_id in sorted(item["id"] for item in response.json().get("data", [])):
+        print(model_id)
+    return 0
+
+
+def _cmd_web(args: argparse.Namespace) -> int:
+    """Serve the web interface on this computer only."""
+    import uvicorn
+
+    from app.web.server import create_app
+
+    print(f"Placement Copilot running at http://127.0.0.1:{args.port}")
+    uvicorn.run(create_app(), host="127.0.0.1", port=args.port, log_level="warning")
     return 0
 
 
@@ -769,6 +822,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tool.set_defaults(func=_cmd_tool)
 
+    sub.add_parser(
+        "llm-check", help="Check the model key with one request"
+    ).set_defaults(func=_cmd_llm_check)
+
+    sub.add_parser(
+        "llm-models", help="List models the configured key can use"
+    ).set_defaults(func=_cmd_llm_models)
+
+    web = sub.add_parser("web", help="Open the web interface (local only)")
+    web.add_argument("--port", type=int, default=8000)
+    web.set_defaults(func=_cmd_web)
+
     # --- agent graph (week 2) ------------------------------------------
     agent = sub.add_parser("agent", help="Run the agent graph")
     agent_sub = agent.add_subparsers(dest="agent_command", required=True)
@@ -777,6 +842,9 @@ def build_parser() -> argparse.ArgumentParser:
     agent_run.add_argument("--change", choices=("new", "changed"), default="new")
     agent_run.add_argument("--no-save", action="store_true", help="Do not store the brief")
     agent_run.add_argument("--json", action="store_true", help="Print the full state")
+    agent_run.add_argument(
+        "--fresh", action="store_true", help="Ignore a stored brief and run again"
+    )
     agent_run.set_defaults(func=_cmd_agent_run)
 
     # --- testing --------------------------------------------------------

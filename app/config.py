@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     poll_retry_base_seconds: float = 2.0
     poll_lock_file: str = "/tmp/placement-poll.lock"
     heartbeat_max_age_hours: int = 3
+    # Live poll progress for the web app's progress bar
+    poll_progress_file: str = ".cache/poll_progress.json"
 
     # --- Telegram --------------------------------------------------------
     telegram_bot_token: str = ""
@@ -91,6 +93,11 @@ class Settings(BaseSettings):
     openai_base_url: str = ""
     research_model: str = "gpt-4o-mini"
     ollama_base_url: str = "http://localhost:11434"
+    # Hard daily cap on model requests across all processes (Gemini free tier safety)
+    llm_daily_request_limit: int = 500
+    # Gap between requests, keeping under the free tier's requests-per-minute limit
+    llm_min_interval_seconds: float = 6.5
+    llm_usage_file: str = ".cache/llm_usage.json"
 
     # --- Search toolbox (week 1) -----------------------------------------
     # "auto" = Wikipedia + GDELT news + optional Brave + DuckDuckGo fallback.

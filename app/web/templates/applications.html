@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "_macros.html" import deadline_chip, status_select %}
+{% block content %}
+<div class="page-head"><div><h1>Applications</h1><p class="lede">Everything you are tracking, soonest deadline first.</p></div></div>
+{% if not rows %}
+  <div class="empty">You are not tracking anything yet. Set a status on any posting to add it here.</div>
+{% else %}
+<table class="table">
+  <thead><tr><th>Role</th><th>Deadline</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for application, opportunity, days_left in rows %}
+    <tr>
+      <td><a href="/postings/{{ opportunity.id }}">{{ opportunity.title }}</a><div class="sub">{{ opportunity.company_name }}</div></td>
+      <td>{{ deadline_chip(days_left, opportunity.deadline) }}</td>
+      <td>{{ status_select(opportunity.id, application.status, statuses) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

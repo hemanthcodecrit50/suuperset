@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head"><div><h1>Resume approvals</h1><p class="lede">The agent only rewords your real projects. Nothing is used until you approve it.</p></div></div>
+{% if not pending %}<div class="empty">No suggestions waiting for review.</div>{% endif %}
+<ul class="cards">
+  {% for suggestion, opportunity in pending %}
+  <li class="card suggestion">
+    <div class="card-main">
+      <div class="bullet">{{ suggestion.bullet }}</div>
+      <div class="sub">
+        {% if suggestion.requirement %}For “{{ suggestion.requirement }}”{% endif %}
+        {% if opportunity %} · <a href="/postings/{{ opportunity.id }}">{{ opportunity.title }} at {{ opportunity.company_name }}</a>{% endif %}
+        {% if suggestion.evidence %} · <a href="{{ suggestion.evidence }}" target="_blank" rel="noopener">evidence</a>{% endif %}
+      </div>
+    </div>
+    <div class="actions">
+      <button class="button" hx-post="/approvals/{{ suggestion.id }}/approve" hx-target="closest li" hx-swap="outerHTML">Approve</button>
+      <button class="button ghost" hx-post="/approvals/{{ suggestion.id }}/reject" hx-target="closest li" hx-swap="outerHTML">Reject</button>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% if approved %}
+<h2>Approved</h2>
+<ul class="plain">
+  {% for suggestion, opportunity in approved %}
+    <li>{{ suggestion.bullet }}{% if opportunity %} <span class="muted small">({{ opportunity.company_name }})</span>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

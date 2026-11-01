@@ -15,7 +15,7 @@ import stat
 import sys
 from pathlib import Path
 
-from app.collector.browser import is_logged_out
+from app.collector.browser import is_app_shell_ready
 from app.config import get_settings
 
 
@@ -33,22 +33,26 @@ async def run_login(timeout_seconds: int = 300) -> int:
 
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=False)
-        context = await browser.new_context(locale="en-IN", timezone_id=settings.timezone)
+        context = await browser.new_context(
+            locale="en-IN", timezone_id=settings.timezone
+        )
         page = await context.new_page()
         await page.goto(login_url, wait_until="domcontentloaded")
 
-        # The portal renders an email/password form at /students; the user
-        # completes it manually. We simply wait until the app shell loads.
+        # A blank, still-loading page shows no login form either, so wait for
+        # the real app shell and require it on two checks in a row.
         deadline_ms = timeout_seconds * 1000
         elapsed = 0
         step = 2000
+        ready_checks = 0
         logged_in = False
         while elapsed < deadline_ms:
-            if not await is_logged_out(page):
-                logged_in = True
-                break
             await page.wait_for_timeout(step)
             elapsed += step
+            ready_checks = ready_checks + 1 if await is_app_shell_ready(page) else 0
+            if ready_checks >= 2:
+                logged_in = True
+                break
 
         if not logged_in:
             print("Timed out waiting for login. No state was saved.", file=sys.stderr)

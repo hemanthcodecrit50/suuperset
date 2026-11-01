@@ -48,3 +48,6 @@ test-results/
 .idea/
 .vscode/
 .DS_Store
+
+# Other
+uist/

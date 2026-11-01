@@ -30,6 +30,7 @@ def load_memory(session: Session, company: str, settings: Settings) -> StudentMe
         is_company_familiar=preferences.always_notify_company(company)
         or _has_tracked_application(session, company),
         is_company_applied=_has_in_process_application(session, company),
+        is_profile_set=preferences.is_configured(),
     )
 
 

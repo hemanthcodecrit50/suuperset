@@ -1,0 +1,33 @@
+<div class="job" id="job-{{ job_name }}"
+     {% if job and job.state == 'running' %}hx-get="/jobs/{{ job_name }}" hx-trigger="load delay:{{ '1s' if job_name == 'poll' else '2s' }}" hx-swap="outerHTML"{% endif %}>
+  {% if job %}
+    {% if job_name == 'poll' %}
+      {% set percent = progress.percent if progress else 0 %}
+      <div class="progress {{ job.state }}">
+        <div class="progress-head">
+          <span class="progress-label">
+            {% if job.state == 'running' %}<span class="spinner"></span>{% elif job.state == 'succeeded' %}<span class="chip good">Done</span>{% else %}<span class="chip danger">Failed</span>{% endif %}
+            {{ progress.label if progress else ('Starting the collector…' if job.state == 'running' else '') }}
+          </span>
+          <span class="progress-percent">{{ 100 if job.state == 'succeeded' else percent }}%</span>
+        </div>
+        <div class="meter"><span style="width: {{ 100 if job.state == 'succeeded' else percent }}%"></span></div>
+        <div class="progress-detail muted small">
+          {{ progress.detail if progress and progress.detail else '' }}
+          {% if job.state == 'running' %}<span class="elapsed">· {{ job.elapsed_seconds }}s</span>{% endif %}
+        </div>
+      </div>
+      {% if job.state == 'failed' %}<pre class="log">{{ job.log_tail() }}</pre>{% endif %}
+    {% elif job.state == 'running' %}
+      <span class="spinner"></span>
+      {% if job_name == 'login' %}A Superset window has opened. Log in there; it closes by itself.
+      {% else %}The agent is researching and checking sources. This can take a minute…{% endif %}
+    {% elif job.state == 'succeeded' %}
+      <span class="chip good">Done</span>
+      {% if job_name == 'login' %}Connected. <a href="/profile">Refresh</a>{% endif %}
+    {% else %}
+      <span class="chip danger">Failed</span>
+      <pre class="log">{{ job.log_tail() }}</pre>
+    {% endif %}
+  {% endif %}
+</div>

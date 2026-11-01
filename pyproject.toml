@@ -12,6 +12,7 @@ packages = [
     "app.jobs",
     "app.services",
     "app.ui",
+    "app.web",
     "scripts",
 ]
 

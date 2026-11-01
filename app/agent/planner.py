@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.agent.state import StudentMemory, Task
@@ -16,17 +17,26 @@ INTERVIEW_PROCESS = "interview_process"
 ROLE_CONTEXT = "role_context"
 
 MAX_TASKS = 5
+LEGAL_SUFFIX_PATTERN = re.compile(
+    r"\b(pvt|private|ltd|limited|llp|inc|corp|corporation|plc|gmbh)\b\.?", re.IGNORECASE
+)
 # Topics that stay true for every role at the company, so they are safe to cache
 COMPANY_LEVEL_TOPICS = frozenset(
     {COMPANY_OVERVIEW, OFFICIAL_SITE, RECENT_NEWS, RISK_NEWS, BOND}
 )
 
 
+def search_name(company: str) -> str:
+    """Company name without legal suffixes, which make search engines miss it."""
+    cleaned = LEGAL_SUFFIX_PATTERN.sub(" ", company)
+    return " ".join(cleaned.replace(",", " ").split()).strip(" .")
+
+
 def plan_tasks(
     opportunity: dict[str, Any], parsed_jd: dict[str, Any], memory: StudentMemory
 ) -> list[Task]:
     """Choose lookups from what the JD says and what is already known."""
-    company = str(opportunity.get("company") or "").strip()
+    company = search_name(str(opportunity.get("company") or ""))
     if not company:
         return []
     role = str(opportunity.get("role") or opportunity.get("title") or "").strip()

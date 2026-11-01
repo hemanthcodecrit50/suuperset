@@ -57,6 +57,7 @@ class StudentMemory:
     cached_evidence: list[Evidence] = field(default_factory=list)
     is_company_familiar: bool = False
     is_company_applied: bool = False
+    is_profile_set: bool = True
 
 
 @dataclass

@@ -142,6 +142,19 @@ async def is_logged_out(page: Any) -> bool:
     return False
 
 
+async def is_app_shell_ready(page: Any) -> bool:
+    """True only once an authenticated app page has rendered, not while it is loading."""
+    from app.selectors import selectors_for
+
+    if await is_logged_out(page):
+        return False
+    try:
+        title = (await page.title()).strip().lower()
+    except Exception:  # pragma: no cover - page may be navigating
+        return False
+    return title in {name.lower() for name in selectors_for().app_titles}
+
+
 async def assert_logged_in(page: Any) -> None:
     """Raise :class:`SessionExpiredError` if the page looks logged out."""
     if await is_logged_out(page):

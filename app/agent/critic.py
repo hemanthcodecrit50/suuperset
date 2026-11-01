@@ -61,8 +61,8 @@ def failed_topics(state: AgentState) -> list[str]:
 
 def is_text_supported(claim_text: str, source_text: str) -> Grounding:
     """Check numbers exactly and key words by coverage against a source text."""
-    claim_numbers = _numbers(claim_text)
-    missing_numbers = claim_numbers - _numbers(source_text)
+    claim_numbers = numbers_in(claim_text)
+    missing_numbers = claim_numbers - numbers_in(source_text)
     if missing_numbers:
         return Grounding(
             False, f"Source does not contain: {', '.join(sorted(missing_numbers))}"
@@ -145,7 +145,8 @@ def _evidence_text(item) -> str:
     return " ".join(part for part in (item.claim, item.excerpt, item.title) if part)
 
 
-def _numbers(text: str) -> set[str]:
+def numbers_in(text: str) -> set[str]:
+    """Numbers in a text, normalised so 1,000 and 1000 compare equal."""
     return {
         match.replace(",", "").rstrip(".") for match in NUMBER_PATTERN.findall(text)
     }
